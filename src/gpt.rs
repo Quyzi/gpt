@@ -29,9 +29,9 @@ pub struct Header
 fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error>
 {
 	//let mut rdr = Cursor::new(bytes);
-	let d1: u32 = rdr.read_u32::<LittleEndian>().unwrap();
-	let d2: u16 = rdr.read_u16::<LittleEndian>().unwrap();
-	let d3: u16 = rdr.read_u16::<LittleEndian>().unwrap();
+	let d1: u32 = rdr.read_u32::<LittleEndian>()?;
+	let d2: u16 = rdr.read_u16::<LittleEndian>()?;
+	let d3: u16 = rdr.read_u16::<LittleEndian>()?;
 
 	match Uuid::from_fields(d1, d2, d3, &rdr.get_ref()[8..])
 	{
@@ -68,19 +68,19 @@ pub fn read_header2(path:&String) -> Result<Header, Error>
 
 	let h = Header{
 		signature:      sigstr.to_string(),
-		revision:       reader.read_u32::<LittleEndian>().unwrap(),
-		header_size_le: reader.read_u32::<LittleEndian>().unwrap(),
-		crc32:          reader.read_u32::<LittleEndian>().unwrap(),
-		reserved:       reader.read_u32::<LittleEndian>().unwrap(),
-		current_lba:    reader.read_u64::<LittleEndian>().unwrap(),
-		backup_lba:     reader.read_u64::<LittleEndian>().unwrap(),
-		first_usable:   reader.read_u64::<LittleEndian>().unwrap(),
-		last_usable:    reader.read_u64::<LittleEndian>().unwrap(),
+		revision:       reader.read_u32::<LittleEndian>()?,
+		header_size_le: reader.read_u32::<LittleEndian>()?,
+		crc32:          reader.read_u32::<LittleEndian>()?,
+		reserved:       reader.read_u32::<LittleEndian>()?,
+		current_lba:    reader.read_u64::<LittleEndian>()?,
+		backup_lba:     reader.read_u64::<LittleEndian>()?,
+		first_usable:   reader.read_u64::<LittleEndian>()?,
+		last_usable:    reader.read_u64::<LittleEndian>()?,
 		disk_guid:      parse_uuid(&mut reader)?,
-		start_lba:      reader.read_u64::<LittleEndian>().unwrap(),
-		num_parts:      reader.read_u32::<LittleEndian>().unwrap(),
-		part_size:      reader.read_u32::<LittleEndian>().unwrap(),
-		crc32_parts:    reader.read_u32::<LittleEndian>().unwrap()
+		start_lba:      reader.read_u64::<LittleEndian>()?,
+		num_parts:      reader.read_u32::<LittleEndian>()?,
+		part_size:      reader.read_u32::<LittleEndian>()?,
+		crc32_parts:    reader.read_u32::<LittleEndian>()?,
 	};
 
 	Ok(h)
