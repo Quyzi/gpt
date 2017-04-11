@@ -1,12 +1,12 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor};
 use std::io::{SeekFrom, Error, ErrorKind};
-use std::convert::AsMut;
 
 extern crate uuid;
 extern crate byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, BigEndian};
 use self::uuid::Uuid;
+
 #[derive(Debug)]
 pub struct Header {
     pub signature: String, // EFI PART
