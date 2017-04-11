@@ -13,7 +13,7 @@ pub struct Header
 	pub signature: String, // EFI PART
 	pub revision: u32, // 00 00 01 00
 	pub header_size_le: u32, // little endian
-	pub crc32: u32, 
+	pub crc32: u32,
 	pub reserved: u32, // must be 0
 	pub current_lba: u64,
 	pub backup_lba: u64,
@@ -26,14 +26,14 @@ pub struct Header
 	pub crc32_parts: u32
 }
 
-fn parse_uuid(rdr: &Cursor<[u8; 92]>) -> Result<Uuid, Error>
+fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error>
 {
 	//let mut rdr = Cursor::new(bytes);
 	let d1: u32 = rdr.read_u32::<LittleEndian>().unwrap();
 	let d2: u16 = rdr.read_u16::<LittleEndian>().unwrap();
 	let d3: u16 = rdr.read_u16::<LittleEndian>().unwrap();
 
-	match Uuid::from_fields(d1, d2, d3, rdr.read_u32::<BigEndian>())
+	match Uuid::from_fields(d1, d2, d3, &rdr.get_ref()[8..])
 	{
 		Ok(uuid) => Ok(uuid),
 		Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?"))
@@ -57,25 +57,25 @@ pub fn read_header2(path:&String) -> Result<Header, Error>
 	let mut hdr: [u8; 92] = [0; 92];
 
 	let _ = file.read_exact(&mut hdr);
-	let mut reader = Cursor::new(&mut hdr[..]);
+	let mut reader = Cursor::new(&hdr[..]);
 
 	let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
 
-	if sigstr != "EFI PART" 
+	if sigstr != "EFI PART"
 	{
 		return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."))
 	};
 
 	let h = Header{
 		signature:      sigstr.to_string(),
-		revision:       reader.read_u32::<LittleEndian>().unwrap(), 
-		header_size_le: reader.read_u32::<LittleEndian>().unwrap(), 
-		crc32:          reader.read_u32::<LittleEndian>().unwrap(), 
+		revision:       reader.read_u32::<LittleEndian>().unwrap(),
+		header_size_le: reader.read_u32::<LittleEndian>().unwrap(),
+		crc32:          reader.read_u32::<LittleEndian>().unwrap(),
 		reserved:       reader.read_u32::<LittleEndian>().unwrap(),
-		current_lba:    reader.read_u64::<LittleEndian>().unwrap(), 
-		backup_lba:     reader.read_u64::<LittleEndian>().unwrap(), 
-		first_usable:   reader.read_u64::<LittleEndian>().unwrap(), 
-		last_usable:    reader.read_u64::<LittleEndian>().unwrap(), 
+		current_lba:    reader.read_u64::<LittleEndian>().unwrap(),
+		backup_lba:     reader.read_u64::<LittleEndian>().unwrap(),
+		first_usable:   reader.read_u64::<LittleEndian>().unwrap(),
+		last_usable:    reader.read_u64::<LittleEndian>().unwrap(),
 		disk_guid:      parse_uuid(&mut reader)?,
 		start_lba:      reader.read_u64::<LittleEndian>().unwrap(),
 		num_parts:      reader.read_u32::<LittleEndian>().unwrap(),
@@ -125,10 +125,10 @@ pub fn read_header(path:&String) -> Result<Header, Error>
 	let _ = file.read_exact(&mut crc32_parts);
 
 	return Ok(Header{
-		signature: signature, 
-		revision: revision, 
-		header_size_le: header_size_le, 
-		crc32: crc32, 
+		signature: signature,
+		revision: revision,
+		header_size_le: header_size_le,
+		crc32: crc32,
 		reserved: reserved,
 		current_lba: current_lba,
 		backup_lba: backup_lba,
