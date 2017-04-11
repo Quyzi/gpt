@@ -1,0 +1,9 @@
+[package]
+name = "gpt"
+version = "0.1.0"
+authors = ["chris"]
+
+[dependencies]
+clap = ""
+uuid = ""
+byteorder = ""
