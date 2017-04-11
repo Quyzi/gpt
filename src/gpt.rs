@@ -1,16 +1,17 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor};
 use std::io::{SeekFrom, Error, ErrorKind};
+use std::convert::AsMut;
 
 extern crate uuid;
 extern crate byteorder;
-use self::byteorder::{LittleEndian, ReadBytesExt};
+use self::byteorder::{LittleEndian, ReadBytesExt, BigEndian};
 use self::uuid::Uuid;
 #[derive(Debug)]
 pub struct Header
 {
-	pub signature: [u8;8], // EFI PART
-	pub revision: [u8;4], // 00 00 01 00
+	pub signature: String, // EFI PART
+	pub revision: u32, // 00 00 01 00
 	pub header_size_le: [u8;4], // little endian
 	pub crc32: [u8;4], 
 	pub reserved: [u8;4], // must be 0
@@ -25,7 +26,7 @@ pub struct Header
 	pub crc32_parts: [u8; 4]
 }
 
-fn parse_uuid(bytes: &[u8; 16]) -> Result<Uuid, Error>
+fn parse_uuid(bytes: &[u8]) -> Result<Uuid, Error>
 {
 	let mut rdr = Cursor::new(bytes);
 	let d1: u32 = rdr.read_u32::<LittleEndian>().unwrap();
@@ -39,6 +40,54 @@ fn parse_uuid(bytes: &[u8; 16]) -> Result<Uuid, Error>
 	}
 }
 
+fn clone_into_array<A, T>(slice: &[T]) -> A
+    where A: Sized + Default + AsMut<[T]>,
+          T: Clone
+{
+    let mut a = Default::default();
+    <A as AsMut<[T]>>::as_mut(&mut a).clone_from_slice(slice);
+    a
+}
+
+pub fn read_header2(path:&String) -> Result<Header, Error>
+{
+	let mut file = File::open(path)?;
+	let _ = file.seek(SeekFrom::Start(512));
+
+	let mut hdr: [u8; 92] = [0; 92];
+
+	//let _ = file.read_exact(&mut hdr);
+	let mut reader = Cursor::new(file);
+
+	let sigstr: String = String::from_utf8_lossy(reader.read_u64::<LittleEndian>());
+
+	if sigstr.as_ref() != "EFI PART" 
+	{
+		return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."))
+	};
+
+
+	let guid: uuid::Uuid = parse_uuid(&hdr[56..72])?;
+	let h = Header{
+		signature: sigstr.to_string(), //clone_into_array(&hdr[0..8]), 
+		revision: &hdr[8..12], 
+		header_size_le: clone_into_array(&hdr[12..16]), 
+		crc32: clone_into_array(&hdr[16..20]), 
+		reserved: clone_into_array(&hdr[20..24]),
+		current_lba: clone_into_array(&hdr[24..32]),
+		backup_lba: clone_into_array(&hdr[32..40]),
+		first_usable: clone_into_array(&hdr[40..48]),
+		last_usable: clone_into_array(&hdr[48..56]),
+		disk_guid: guid,
+		start_lba: clone_into_array(&hdr[72..80]),
+		num_parts: clone_into_array(&hdr[80..84]),
+		part_size: clone_into_array(&hdr[84..88]),
+		crc32_parts: clone_into_array(&hdr[88..])
+	};
+
+	Ok(h)
+}
+/*
 pub fn read_header(path:&String) -> Result<Header, Error>
 {
 	let mut file = File::open(path)?;
@@ -71,9 +120,7 @@ pub fn read_header(path:&String) -> Result<Header, Error>
 	let _ = file.read_exact(&mut backup_lba);
 	let _ = file.read_exact(&mut first_usable);
 	let _ = file.read_exact(&mut last_usable);
-
 	let _ = file.read_exact(&mut disk_guid);
-
 	let _ = file.read_exact(&mut start_lba);
 	let _ = file.read_exact(&mut num_parts);
 	let _ = file.read_exact(&mut part_size);
@@ -96,3 +143,4 @@ pub fn read_header(path:&String) -> Result<Header, Error>
 		crc32_parts: crc32_parts
 	});
 }
+*/
