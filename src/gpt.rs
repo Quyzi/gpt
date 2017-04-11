@@ -1,89 +1,75 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor};
 use std::io::{SeekFrom, Error, ErrorKind};
-use std::convert::AsMut;
 
 extern crate uuid;
 extern crate byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, BigEndian};
 use self::uuid::Uuid;
+
 #[derive(Debug)]
-pub struct Header
-{
-	pub signature: String, // EFI PART
-	pub revision: u32, // 00 00 01 00
-	pub header_size_le: u32, // little endian
-	pub crc32: u32, 
-	pub reserved: u32, // must be 0
-	pub current_lba: u64,
-	pub backup_lba: u64,
-	pub first_usable: u64,
-	pub last_usable: u64,
-	pub disk_guid: uuid::Uuid,
-	pub start_lba: u64,
-	pub num_parts: u32,
-	pub part_size: u32, // usually 128
-	pub crc32_parts: u32
+pub struct Header {
+    pub signature: String, // EFI PART
+    pub revision: u32, // 00 00 01 00
+    pub header_size_le: u32, // little endian
+    pub crc32: u32,
+    pub reserved: u32, // must be 0
+    pub current_lba: u64,
+    pub backup_lba: u64,
+    pub first_usable: u64,
+    pub last_usable: u64,
+    pub disk_guid: uuid::Uuid,
+    pub start_lba: u64,
+    pub num_parts: u32,
+    pub part_size: u32, // usually 128
+    pub crc32_parts: u32,
 }
 
-fn parse_uuid(rdr: &Cursor<[u8; 92]>) -> Result<Uuid, Error>
-{
-	//let mut rdr = Cursor::new(bytes);
-	let d1: u32 = rdr.read_u32::<LittleEndian>().unwrap();
-	let d2: u16 = rdr.read_u16::<LittleEndian>().unwrap();
-	let d3: u16 = rdr.read_u16::<LittleEndian>().unwrap();
+fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
+    //let mut rdr = Cursor::new(bytes);
+    let d1: u32 = rdr.read_u32::<LittleEndian>()?;
+    let d2: u16 = rdr.read_u16::<LittleEndian>()?;
+    let d3: u16 = rdr.read_u16::<LittleEndian>()?;
 
-	match Uuid::from_fields(d1, d2, d3, rdr.read_u32::<BigEndian>())
-	{
-		Ok(uuid) => Ok(uuid),
-		Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?"))
-	}
+    match Uuid::from_fields(d1, d2, d3, &rdr.get_ref()[8..]) {
+        Ok(uuid) => Ok(uuid),
+        Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?")),
+    }
 }
 
-fn clone_into_array<A, T>(slice: &[T]) -> A
-    where A: Sized + Default + AsMut<[T]>,
-          T: Clone
-{
-    let mut a = Default::default();
-    <A as AsMut<[T]>>::as_mut(&mut a).clone_from_slice(slice);
-    a
-}
+pub fn read_header2(path: &String) -> Result<Header, Error> {
+    let mut file = File::open(path)?;
+    let _ = file.seek(SeekFrom::Start(512));
 
-pub fn read_header2(path:&String) -> Result<Header, Error>
-{
-	let mut file = File::open(path)?;
-	let _ = file.seek(SeekFrom::Start(512));
+    let mut hdr: [u8; 92] = [0; 92];
 
-	let mut hdr: [u8; 92] = [0; 92];
+    let _ = file.read_exact(&mut hdr);
+    let mut reader = Cursor::new(&hdr[..]);
 
-	let _ = file.read_exact(&mut hdr);
-	let mut reader = Cursor::new(&mut hdr[..]);
+    let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
 
-	let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
+    if sigstr != "EFI PART" {
+        return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."));
+    };
 
-	if sigstr != "EFI PART" 
-	{
-		return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."))
-	};
+    let h = Header {
+        signature: sigstr.to_string(),
+        revision: reader.read_u32::<LittleEndian>()?,
+        header_size_le: reader.read_u32::<LittleEndian>()?,
+        crc32: reader.read_u32::<LittleEndian>()?,
+        reserved: reader.read_u32::<LittleEndian>()?,
+        current_lba: reader.read_u64::<LittleEndian>()?,
+        backup_lba: reader.read_u64::<LittleEndian>()?,
+        first_usable: reader.read_u64::<LittleEndian>()?,
+        last_usable: reader.read_u64::<LittleEndian>()?,
+        disk_guid: parse_uuid(&mut reader)?,
+        start_lba: reader.read_u64::<LittleEndian>()?,
+        num_parts: reader.read_u32::<LittleEndian>()?,
+        part_size: reader.read_u32::<LittleEndian>()?,
+        crc32_parts: reader.read_u32::<LittleEndian>()?,
+    };
 
-	let h = Header{
-		signature:      sigstr.to_string(),
-		revision:       reader.read_u32::<LittleEndian>().unwrap(), 
-		header_size_le: reader.read_u32::<LittleEndian>().unwrap(), 
-		crc32:          reader.read_u32::<LittleEndian>().unwrap(), 
-		reserved:       reader.read_u32::<LittleEndian>().unwrap(),
-		current_lba:    reader.read_u64::<LittleEndian>().unwrap(), 
-		backup_lba:     reader.read_u64::<LittleEndian>().unwrap(), 
-		first_usable:   reader.read_u64::<LittleEndian>().unwrap(), 
-		last_usable:    reader.read_u64::<LittleEndian>().unwrap(), 
-		disk_guid:      parse_uuid(&mut reader)?,
-		start_lba:      reader.read_u64::<LittleEndian>().unwrap(),
-		num_parts:      reader.read_u32::<LittleEndian>().unwrap(),
-		part_size:      reader.read_u32::<LittleEndian>().unwrap(),
-		crc32_parts:    reader.read_u32::<LittleEndian>().unwrap()
-	};
-
-	Ok(h)
+    Ok(h)
 }
 /*
 pub fn read_header(path:&String) -> Result<Header, Error>
@@ -94,7 +80,8 @@ pub fn read_header(path:&String) -> Result<Header, Error>
 	let mut signature: [u8;8] = [0;8];
 	let _ = file.read_exact(&mut signature);
 	let sigstr = String::from_utf8_lossy(&signature);
-	if sigstr.as_ref() != "EFI PART" { return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature")) };
+	if sigstr.as_ref() != "EFI PART" { return Err(Error::new(ErrorKind::Other,
+	"Invalid GPT Signature")) };
 
 	let mut revision: [u8; 4] = [0; 4];
 	let mut header_size_le: [u8;4] = [0; 4];
@@ -125,10 +112,10 @@ pub fn read_header(path:&String) -> Result<Header, Error>
 	let _ = file.read_exact(&mut crc32_parts);
 
 	return Ok(Header{
-		signature: signature, 
-		revision: revision, 
-		header_size_le: header_size_le, 
-		crc32: crc32, 
+		signature: signature,
+		revision: revision,
+		header_size_le: header_size_le,
+		crc32: crc32,
 		reserved: reserved,
 		current_lba: current_lba,
 		backup_lba: backup_lba,
