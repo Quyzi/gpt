@@ -51,9 +51,11 @@ pub fn read_header2(path: &String) -> Result<Header, Error> {
     let mut reader = Cursor::new(&hdr[..]);
 
     // let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
-    let sig = reader.read_u64::<LittleEndian>()?;
-    let b: [u8; 8] = unsafe { transmute(sig) };
-    let sigstr = String::from_utf8_lossy(&b);
+    // let sig = reader.read_u64::<LittleEndian>()?;
+    // let b: [u8; 8] = unsafe { transmute(sig) };
+    // let sigstr = String::from_utf8_lossy(&b);
+    let sigstr = String::from_utf8_lossy(&reader.get_ref()[reader.position() as usize .. reader.position() as usize + 8]);
+    reader.seek(SeekFrom::Current(8));
 
     if sigstr != "EFI PART" {
         return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."));
