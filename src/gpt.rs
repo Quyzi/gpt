@@ -34,7 +34,7 @@ fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
     let mut d4: [u8; 8] = [0; 8];
     let _ = rdr.read_exact(&mut d4);
     let thing = Uuid::from_fields(d1, d2, d3, &d4);
-    println!("{:?}", thing);
+
     match thing {
         Ok(uuid) => Ok(uuid),
         Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?")),
@@ -50,6 +50,7 @@ pub fn read_header2(path: &String) -> Result<Header, Error> {
     let _ = file.read_exact(&mut hdr);
     let mut reader = Cursor::new(&hdr[..]);
 
+    // let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
     let sig = reader.read_u64::<LittleEndian>()?;
     let b: [u8; 8] = unsafe { transmute(sig) };
     let sigstr = String::from_utf8_lossy(&b);
