@@ -7,3 +7,4 @@ authors = ["chris"]
 clap = ""
 uuid = ""
 byteorder = ""
+crc = ""

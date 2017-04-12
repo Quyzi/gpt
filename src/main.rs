@@ -20,7 +20,7 @@ fn main()
 
 	let filename = input.value_of("filename").unwrap().to_string();
 
-	let h = gpt::read_header2(&filename);
+	let h = gpt::read_header(&filename);
 	println!("{:?}", h);
 	println!("");
 }
