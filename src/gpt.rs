@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor};
 use std::io::{SeekFrom, Error, ErrorKind};
+use std::mem::transmute;
 
 extern crate uuid;
 extern crate byteorder;
@@ -30,8 +31,11 @@ fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
     let d1: u32 = rdr.read_u32::<LittleEndian>()?;
     let d2: u16 = rdr.read_u16::<LittleEndian>()?;
     let d3: u16 = rdr.read_u16::<LittleEndian>()?;
-
-    match Uuid::from_fields(d1, d2, d3, &rdr.get_ref()[8..]) {
+    let mut d4: [u8; 8] = [0; 8];
+    let _ = rdr.read_exact(&mut d4);
+    let thing = Uuid::from_fields(d1, d2, d3, &d4);
+    println!("{:?}", thing);
+    match thing {
         Ok(uuid) => Ok(uuid),
         Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?")),
     }
@@ -46,27 +50,29 @@ pub fn read_header2(path: &String) -> Result<Header, Error> {
     let _ = file.read_exact(&mut hdr);
     let mut reader = Cursor::new(&hdr[..]);
 
-    let sigstr = reader.read_u64::<LittleEndian>()?.to_string();
+    let sig = reader.read_u64::<LittleEndian>()?;
+    let b: [u8; 8] = unsafe { transmute(sig) };
+    let sigstr = String::from_utf8_lossy(&b);
 
     if sigstr != "EFI PART" {
         return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."));
     };
 
     let h = Header {
-        signature: sigstr.to_string(),
-        revision: reader.read_u32::<LittleEndian>()?,
+        signature:      sigstr.to_string(),
+        revision:       reader.read_u32::<LittleEndian>()?,
         header_size_le: reader.read_u32::<LittleEndian>()?,
-        crc32: reader.read_u32::<LittleEndian>()?,
-        reserved: reader.read_u32::<LittleEndian>()?,
-        current_lba: reader.read_u64::<LittleEndian>()?,
-        backup_lba: reader.read_u64::<LittleEndian>()?,
-        first_usable: reader.read_u64::<LittleEndian>()?,
-        last_usable: reader.read_u64::<LittleEndian>()?,
-        disk_guid: parse_uuid(&mut reader)?,
-        start_lba: reader.read_u64::<LittleEndian>()?,
-        num_parts: reader.read_u32::<LittleEndian>()?,
-        part_size: reader.read_u32::<LittleEndian>()?,
-        crc32_parts: reader.read_u32::<LittleEndian>()?,
+        crc32:          reader.read_u32::<LittleEndian>()?,
+        reserved:       reader.read_u32::<LittleEndian>()?,
+        current_lba:    reader.read_u64::<LittleEndian>()?,
+        backup_lba:     reader.read_u64::<LittleEndian>()?,
+        first_usable:   reader.read_u64::<LittleEndian>()?,
+        last_usable:    reader.read_u64::<LittleEndian>()?,
+        disk_guid:      parse_uuid(&mut reader)?,
+        start_lba:      reader.read_u64::<LittleEndian>()?,
+        num_parts:      reader.read_u32::<LittleEndian>()?,
+        part_size:      reader.read_u32::<LittleEndian>()?,
+        crc32_parts:    reader.read_u32::<LittleEndian>()?,
     };
 
     Ok(h)
