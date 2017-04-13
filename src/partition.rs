@@ -42,14 +42,14 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> String {
 	return String::from_utf16_lossy(&namebytes);
 }
 
-fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
+fn parse_parttype_guid(str: uuid::Uuid) -> Result<PartitionType, Error> {
 	let uuid = str.hyphenated().to_string().to_uppercase();
 	let mut file = File::open("types.json")?;
 	let mut json: String = String::new();
 	let _ = file.read_to_string(&mut json);
 	let mut guids: Vec<PartitionType> = serde_json::from_str(&json)?;
 
-	PartitionType {os: String::from("Dummy"), desc: String::from("Dummy"), guid: uuid}
+	Ok(PartitionType {os: String::from("Dummy"), desc: String::from("Dummy"), guid: uuid})
 
 }
 
@@ -70,7 +70,7 @@ pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>,
     	let mut reader = Cursor::new(&bytes[..]);
 
     	let p: Partition = Partition {
-    		part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
+    		part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?)?,
     		part_guid: parse_uuid(&mut reader)?,
     		first_LBA: reader.read_u32::<LittleEndian>()?,
     		last_LBA: reader.read_u32::<LittleEndian>()?,
