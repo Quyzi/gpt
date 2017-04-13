@@ -6,7 +6,7 @@ extern crate uuid;
 extern crate byteorder;
 extern crate crc;
 
-use self::byteorder::{LittleEndian, ReadBytesExt};
+use self::byteorder::{LittleEndian, ReadBytesExt, BigEndian};
 use self::uuid::Uuid;
 use self::crc::crc32;
 
@@ -22,13 +22,13 @@ pub struct Header {
     pub first_usable: u64,
     pub last_usable: u64,
     pub disk_guid: uuid::Uuid,
-    pub start_lba: u64,
+    pub part_start: u64,
     pub num_parts: u32,
     pub part_size: u32, // usually 128
     pub crc32_parts: u32,
 }
 
-fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
+pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
     //let mut rdr = Cursor::new(bytes);
     let d1: u32 = rdr.read_u32::<LittleEndian>()?;
     let d2: u16 = rdr.read_u16::<LittleEndian>()?;
@@ -69,7 +69,7 @@ pub fn read_header(path: &String) -> Result<Header, Error> {
         first_usable:   reader.read_u64::<LittleEndian>()?,
         last_usable:    reader.read_u64::<LittleEndian>()?,
         disk_guid:      parse_uuid(&mut reader)?,
-        start_lba:      reader.read_u64::<LittleEndian>()?,
+        part_start:      reader.read_u64::<LittleEndian>()?,
         num_parts:      reader.read_u32::<LittleEndian>()?,
         part_size:      reader.read_u32::<LittleEndian>()?,
         crc32_parts:    reader.read_u32::<LittleEndian>()?,

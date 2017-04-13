@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate clap;
 
-use clap::{Arg, App};
+extern crate gpt;
 
-mod gpt;
+use clap::{Arg, App};
+use gpt::header::{Header, read_header};
+use gpt::partition::{Partition, read_partitions};
 
 fn main()
 {
@@ -20,7 +22,10 @@ fn main()
 
 	let filename = input.value_of("filename").unwrap().to_string();
 
-	let h = gpt::read_header(&filename);
+	let mut h = read_header(&filename).unwrap();
+	let p = read_partitions(&filename, &mut h);
+
 	println!("{:?}", h);
 	println!("");
+	println!("{:?}", p);
 }
