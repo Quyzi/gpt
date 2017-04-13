@@ -6,6 +6,8 @@ use header::{Header, parse_uuid};
 extern crate uuid;
 extern crate byteorder;
 extern crate crc;
+extern crate serde;
+extern crate serde_json;
 
 use self::byteorder::{LittleEndian, ReadBytesExt};
 use self::uuid::Uuid;
@@ -13,12 +15,19 @@ use self::crc::crc32;
 
 #[derive(Debug)]
 pub struct Partition {
-	part_type_guid: uuid::Uuid,
+	part_type_guid: PartitionType,
 	part_guid: uuid::Uuid,
 	first_LBA: u32, // little endian
 	last_LBA: u32,
 	flags: u32,
 	name: String // 36 UTF-16LE code units
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PartitionType {
+	os: String,
+	guid: String,
+	desc: String
 }
 
 fn read_part_name(rdr: &mut Cursor<&[u8]>) -> String {
@@ -31,6 +40,17 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> String {
 	}
 
 	return String::from_utf16_lossy(&namebytes);
+}
+
+fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
+	let uuid = str.hyphenated().to_string().to_uppercase();
+	let mut file = File::open("types.json")?;
+	let mut json: String = String::new();
+	let _ = file.read_to_string(&mut json);
+	let mut guids: Vec<PartitionType> = serde_json::from_str(&json)?;
+
+	PartitionType {os: String::from("Dummy"), desc: String::from("Dummy"), guid: uuid}
+
 }
 
 pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>, Error> {
@@ -50,7 +70,7 @@ pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>,
     	let mut reader = Cursor::new(&bytes[..]);
 
     	let p: Partition = Partition {
-    		part_type_guid: parse_uuid(&mut reader)?,
+    		part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
     		part_guid: parse_uuid(&mut reader)?,
     		first_LBA: reader.read_u32::<LittleEndian>()?,
     		last_LBA: reader.read_u32::<LittleEndian>()?,
