@@ -10,17 +10,22 @@ extern crate serde;
 extern crate serde_json;
 
 use self::byteorder::{LittleEndian, ReadBytesExt};
-use self::uuid::Uuid;
 use self::crc::crc32;
 
 #[derive(Debug)]
 pub struct Partition {
+    /// Contains the GUID of the type of partition.
     part_type_guid: PartitionType,
+    /// UUID of the partition.
     part_guid: uuid::Uuid,
-    first_LBA: u32, // little endian
+    /// First LBA of the partition
+    first_LBA: u32, 
+    /// Last LBA of the partition
     last_LBA: u32,
+    /// Partition flags
     flags: u32,
-    name: String, // 36 UTF-16LE code units
+    /// Name of the partition (36 UTF-16LE characters)
+    name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,14 +56,25 @@ fn parse_parttype_guid(str: uuid::Uuid) -> Result<PartitionType, Error> {
         serde_json::from_str(&json).map_err(|e: serde_json::Error|
 			Error::new(ErrorKind::Other, e.to_string()))?;
 
-    Ok(PartitionType {
-           os: String::from("Dummy"),
-           desc: String::from("Dummy"),
-           guid: uuid,
-       })
+    for guid in guids {
+        if guid.guid  == uuid {
+            return Ok(PartitionType {
+                guid: guid.guid,
+                os: guid.os,
+                desc: guid.desc
+            })
+        }
+    }
+
+    Err(Error::new(ErrorKind::Other, "Partition GUID not found."))
 
 }
 
+/// Read a gpt partition table. 
+///
+/// let header = read_header("/dev/sda").unwrap();
+/// let partitions: Vec<Partition> = read_partitions("/dev/sda", &mut header);
+///
 pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>, Error> {
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512 * header.part_start));

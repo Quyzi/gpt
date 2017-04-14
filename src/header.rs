@@ -6,30 +6,45 @@ extern crate uuid;
 extern crate byteorder;
 extern crate crc;
 
-use self::byteorder::{LittleEndian, ReadBytesExt, BigEndian};
+use self::byteorder::{LittleEndian, ReadBytesExt};
 use self::uuid::Uuid;
 use self::crc::crc32;
 
 #[derive(Debug)]
 pub struct Header {
-    pub signature: String, // EFI PART
-    pub revision: u32, // 00 00 01 00
-    pub header_size_le: u32, // little endian
-    pub crc32: u32,
-    pub reserved: u32, // must be 0
-    pub current_lba: u64,
-    pub backup_lba: u64,
-    pub first_usable: u64,
-    pub last_usable: u64,
-    pub disk_guid: uuid::Uuid,
-    pub part_start: u64,
-    pub num_parts: u32,
-    pub part_size: u32, // usually 128
-    pub crc32_parts: u32,
+    /// EFI PART
+    pub signature: String, 
+    /// 00 00 01 00
+    pub revision: u32, 
+    /// little endian
+    pub header_size_le: u32, 
+    /// CRC32 of the header with crc32 section zeroed
+    pub crc32: u32, 
+    /// must be 0
+    pub reserved: u32, 
+    /// For main header, 1
+    pub current_lba: u64, 
+    /// LBA for backup header
+    pub backup_lba: u64, 
+    /// First usable LBA for partitions (primary table last LBA + 1)
+    pub first_usable: u64, 
+    /// Last usable LBA (seconary partition table first LBA - 1)
+    pub last_usable: u64, 
+    /// UUID of the disk
+    pub disk_guid: uuid::Uuid, 
+    /// Starting LBA of partition entries
+    pub part_start: u64, 
+    /// Number of partition entries
+    pub num_parts: u32, 
+    /// Size of a partition entry, usually 128
+    pub part_size: u32, 
+    /// CRC32 of the partition table
+    pub crc32_parts: u32, 
+
 }
 
+/// Parses a uuid with first 3 portions in little endian. 
 pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
-    //let mut rdr = Cursor::new(bytes);
     let d1: u32 = rdr.read_u32::<LittleEndian>()?;
     let d2: u16 = rdr.read_u16::<LittleEndian>()?;
     let d3: u16 = rdr.read_u16::<LittleEndian>()?;
@@ -42,6 +57,12 @@ pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
     }
 }
 
+/// Read a GPT header from a given path. 
+///
+/// use gpt::header::read_header;
+///
+/// let h = read_header("/dev/sda")?;
+///
 pub fn read_header(path: &String) -> Result<Header, Error> {
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512));
