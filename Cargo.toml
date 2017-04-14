@@ -2,8 +2,10 @@
 name = "gpt"
 version = "0.1.2"
 description = "A library to read GPT headers and partition information from disks and disk images."
-documentation = "none?"
+documentation = "https://docs.rs/gpt"
 authors = ["Chris Ober <obercgit@gmail.com>"]
+License-file = "LICENSE"
+License = "MIT"
 
 [dependencies]
 uuid = "~0.4"
