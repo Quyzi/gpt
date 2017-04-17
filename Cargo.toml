@@ -1,10 +1,11 @@
 [package]
 name = "gpt"
-version = "0.1.4"
+version = "0.1.5"
 description = "A library to read GPT headers and partition information from disks and disk images."
 documentation = "https://docs.rs/gpt"
 authors = ["Chris Ober <obercgit@gmail.com>", "Chris Holcombe <xfactor973@gmail.com>"]
 license = "MIT"
+homepage = "https://github.com/Quyzi/gpt"
 
 [dependencies]
 uuid = "~0.4"
