@@ -78,7 +78,6 @@ fn parse_parttype_guid(str: uuid::Uuid) -> Result<PartitionType, Error> {
 pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>, Error> {
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512 * header.part_start));
-
     let mut parts: Vec<Partition> = Vec::new();
 
     for _ in 0..header.num_parts {
@@ -103,6 +102,14 @@ pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>,
         if p.part_guid.simple().to_string() != "00000000000000000000000000000000" {
             parts.push(p);
         }
+    }
+
+    let _ = file.seek(SeekFrom::Start(512 * header.part_start));
+    let mut table: [u8; 16384] = [0; 16384];
+    let _ = file.read_exact(&mut table);
+
+    if crc32::checksum_ieee(&table) != header.crc32_parts {
+        return Err(Error::new(ErrorKind::Other, "Invalid partition table CRC."))
     }
 
     Ok(parts)
