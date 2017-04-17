@@ -5,6 +5,8 @@ Rust library for reading GPT headers and partition tables on disks and disk imag
 
 ```rust
 extern crate gpt;
+use gpt::header::{Header, read_header};
+use gpt::partition::{Partition, read_partitions};
 
 let filename = "/dev/sda";
 let mut h = read_header(&filename).unwrap();
