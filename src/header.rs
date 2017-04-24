@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor};
 use std::io::{SeekFrom, Error, ErrorKind};
+use std::fmt; 
 
 extern crate uuid;
 extern crate byteorder;
@@ -54,6 +55,12 @@ pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid, Error> {
     match uuid {
         Ok(uuid) => Ok(uuid),
         Err(_) => Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?")),
+    }
+}
+
+impl fmt::Display for Header {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Disk:\t\t{}\nCRC32:\t\t{}\nTable CRC:\t{}", self.disk_guid, self.crc32, self.crc32_parts)
     }
 }
 

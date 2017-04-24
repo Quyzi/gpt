@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Seek, Cursor, SeekFrom, Error, ErrorKind};
+use std::fmt;
 
 use header::{Header, parse_uuid};
 
@@ -33,6 +34,12 @@ struct PartitionType {
     os: String,
     guid: String,
     desc: String,
+}
+
+impl fmt::Display for Partition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Partition:\t\t{}\nPartition GUID:\t\t{}\nPartition Type:\t\t{}\t{}\nSpan:\t\t\t{} - {}\nFlags:\t\t\t{}", self.name, self.part_guid, self.part_type_guid.guid, self.part_type_guid.desc, self.first_LBA, self.last_LBA, self.flags)
+    }
 }
 
 fn read_part_name(rdr: &mut Cursor<&[u8]>) -> String {
