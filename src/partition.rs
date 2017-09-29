@@ -7,6 +7,8 @@ use header::{Header, parse_uuid};
 extern crate uuid;
 extern crate byteorder;
 extern crate crc;
+#[macro_use]
+extern crate log;
 extern crate serde;
 extern crate serde_json;
 
@@ -20,7 +22,7 @@ pub struct Partition {
     /// UUID of the partition.
     part_guid: uuid::Uuid,
     /// First LBA of the partition
-    first_LBA: u32, 
+    first_LBA: u32,
     /// Last LBA of the partition
     last_LBA: u32,
     /// Partition flags
@@ -77,12 +79,13 @@ fn parse_parttype_guid(str: uuid::Uuid) -> Result<PartitionType, Error> {
 
 }
 
-/// Read a gpt partition table. 
+/// Read a gpt partition table.
 ///
 /// let header = read_header("/dev/sda").unwrap();
 /// let partitions: Vec<Partition> = read_partitions("/dev/sda", &mut header);
 ///
 pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>, Error> {
+
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512 * header.part_start));
     let mut parts: Vec<Partition> = Vec::new();
