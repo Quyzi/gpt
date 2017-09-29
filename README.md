@@ -7,7 +7,7 @@ extern crate gpt;
 use gpt::header::{Header, read_header};
 use gpt::partition::{Partition, read_partitions};
 
-let filename = "/dev/sda";
+let filename = "/dev/sda".to_string();
 let mut h = read_header(&filename).unwrap();
 let p = read_partitions(&filename, &mut h);
 ```
