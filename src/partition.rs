@@ -7,8 +7,6 @@ use header::{Header, parse_uuid};
 extern crate uuid;
 extern crate byteorder;
 extern crate crc;
-extern crate serde;
-extern crate serde_json;
 
 use partition_types::PART_HASHMAP;
 use self::byteorder::{LittleEndian, ReadBytesExt};
@@ -30,7 +28,7 @@ pub struct Partition {
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 struct PartitionType {
     os: String,
     guid: String,
