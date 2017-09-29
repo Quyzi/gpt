@@ -10,6 +10,7 @@ extern crate crc;
 extern crate serde;
 extern crate serde_json;
 
+use partition_types::PART_HASHMAP;
 use self::byteorder::{LittleEndian, ReadBytesExt};
 use self::crc::crc32;
 
@@ -66,31 +67,27 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
     return Ok(String::from_utf16_lossy(&namebytes));
 }
 
-fn parse_parttype_guid(str: uuid::Uuid) -> Result<PartitionType> {
+fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
     debug!("Parsing partition guid");
     let uuid = str.hyphenated().to_string().to_uppercase();
-    debug!("opening types.json to identify partition type");
-    let mut file = File::open("types.json")?;
-    let mut json: String = String::new();
-    let _ = file.read_to_string(&mut json);
-    let mut guids: Vec<PartitionType> = serde_json::from_str(&json).map_err(
-        |e: serde_json::Error| {
-            Error::new(ErrorKind::Other, e.to_string())
-        },
-    )?;
-
-    for guid in guids {
-        if guid.guid == uuid {
-            return Ok(PartitionType {
-                guid: guid.guid,
-                os: guid.os,
-                desc: guid.desc,
-            });
+    debug!("Looking up partition type");
+    match PART_HASHMAP.get(&uuid) {
+        Some(part_id) => {
+            PartitionType {
+                guid: uuid,
+                os: part_id.0.into(),
+                desc: part_id.1.into(),
+            }
+        }
+        None => {
+            error!("Unknown partition type: {}", uuid);
+            PartitionType {
+                guid: uuid,
+                os: "".to_string(),
+                desc: "".to_string(),
+            }
         }
     }
-
-    Err(Error::new(ErrorKind::Other, "Partition GUID not found."))
-
 }
 
 /// Read a gpt partition table.
@@ -117,7 +114,7 @@ pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>>
         let mut reader = Cursor::new(&bytes[..]);
 
         let p: Partition = Partition {
-            part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?)?,
+            part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
             part_guid: parse_uuid(&mut reader)?,
             first_LBA: reader.read_u32::<LittleEndian>()?,
             last_LBA: reader.read_u32::<LittleEndian>()?,
