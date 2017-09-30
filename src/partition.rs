@@ -12,27 +12,27 @@ use partition_types::PART_HASHMAP;
 use self::byteorder::{LittleEndian, ReadBytesExt};
 use self::crc::crc32;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Partition {
     /// Contains the GUID of the type of partition.
-    part_type_guid: PartitionType,
+    pub part_type_guid: PartitionType,
     /// UUID of the partition.
-    part_guid: uuid::Uuid,
+    pub part_guid: uuid::Uuid,
     /// First LBA of the partition
-    first_LBA: u32,
+    pub first_LBA: u64,
     /// Last LBA of the partition
-    last_LBA: u32,
+    pub last_LBA: u64,
     /// Partition flags
-    flags: u32,
+    pub flags: u64,
     /// Name of the partition (36 UTF-16LE characters)
-    name: String,
+    pub name: String,
 }
 
-#[derive(Debug)]
-struct PartitionType {
-    os: String,
-    guid: String,
-    desc: String,
+#[derive(Debug, Eq, PartialEq)]
+pub struct PartitionType {
+    pub os: String,
+    pub guid: String,
+    pub desc: String,
 }
 
 impl fmt::Display for Partition {
@@ -114,9 +114,9 @@ pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>>
         let p: Partition = Partition {
             part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
             part_guid: parse_uuid(&mut reader)?,
-            first_LBA: reader.read_u32::<LittleEndian>()?,
-            last_LBA: reader.read_u32::<LittleEndian>()?,
-            flags: reader.read_u32::<LittleEndian>()?,
+            first_LBA: reader.read_u64::<LittleEndian>()?,
+            last_LBA: reader.read_u64::<LittleEndian>()?,
+            flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
         };
 
