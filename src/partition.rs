@@ -93,7 +93,7 @@ fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
 /// let header = read_header("/dev/sda").unwrap();
 /// let partitions: Vec<Partition> = read_partitions("/dev/sda", &mut header);
 ///
-pub fn read_partitions(path: &String, header: &Header) -> Result<Vec<Partition>> {
+pub fn read_partitions(path: &str, header: &Header) -> Result<Vec<Partition>> {
     debug!("reading partitions from file: {}", path);
     let mut file = File::open(path)?;
     trace!("Seeking to {}", 512 * header.part_start);

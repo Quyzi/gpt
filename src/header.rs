@@ -80,7 +80,7 @@ impl fmt::Display for Header {
 ///
 /// let h = read_header("/dev/sda")?;
 ///
-pub fn read_header(path: &String) -> Result<Header, Error> {
+pub fn read_header(path: &str) -> Result<Header, Error> {
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512));
 
