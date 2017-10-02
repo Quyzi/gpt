@@ -11,36 +11,36 @@ use self::byteorder::{LittleEndian, ReadBytesExt};
 use self::uuid::Uuid;
 use self::crc::crc32;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Header {
     /// EFI PART
-    pub signature: String,
+    pub signature: String, // Offset  0. "EFI PART", 45h 46h 49h 20h 50h 41h 52h 54h
     /// 00 00 01 00
-    pub revision: u32,
+    pub revision: u32, // Offset  8
     /// little endian
-    pub header_size_le: u32,
+    pub header_size_le: u32, // Offset 12
     /// CRC32 of the header with crc32 section zeroed
-    pub crc32: u32,
+    pub crc32: u32, // Offset 16
     /// must be 0
-    pub reserved: u32,
+    pub reserved: u32, // Offset 20
     /// For main header, 1
-    pub current_lba: u64,
+    pub current_lba: u64, // Offset 24
     /// LBA for backup header
-    pub backup_lba: u64,
+    pub backup_lba: u64, // Offset 32
     /// First usable LBA for partitions (primary table last LBA + 1)
-    pub first_usable: u64,
+    pub first_usable: u64, // Offset 40
     /// Last usable LBA (seconary partition table first LBA - 1)
-    pub last_usable: u64,
+    pub last_usable: u64, // Offset 48
     /// UUID of the disk
-    pub disk_guid: uuid::Uuid,
+    pub disk_guid: uuid::Uuid, // Offset 56
     /// Starting LBA of partition entries
-    pub part_start: u64,
+    pub part_start: u64, // Offset 72
     /// Number of partition entries
-    pub num_parts: u32,
+    pub num_parts: u32, // Offset 80
     /// Size of a partition entry, usually 128
-    pub part_size: u32,
+    pub part_size: u32, // Offset 84
     /// CRC32 of the partition table
-    pub crc32_parts: u32,
+    pub crc32_parts: u32, // Offset 88
 }
 
 /// Parses a uuid with first 3 portions in little endian.
@@ -80,7 +80,7 @@ impl fmt::Display for Header {
 ///
 /// let h = read_header("/dev/sda")?;
 ///
-pub fn read_header(path: &String) -> Result<Header, Error> {
+pub fn read_header(path: &str) -> Result<Header, Error> {
     let mut file = File::open(path)?;
     let _ = file.seek(SeekFrom::Start(512));
 
