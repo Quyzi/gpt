@@ -1,16 +1,27 @@
-use std::fs::File;
-use std::io::{Read, Seek, Cursor, SeekFrom, Error, ErrorKind, Result};
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, Cursor, SeekFrom, Error, ErrorKind, Result, Write};
 use std::fmt;
+use std::path::Path;
 
-use header::{Header, parse_uuid};
+use header::{Header, parse_uuid, partentry_checksum};
 
-extern crate uuid;
 extern crate byteorder;
 extern crate crc;
+extern crate itertools;
+extern crate uuid;
 
 use partition_types::PART_HASHMAP;
-use self::byteorder::{LittleEndian, ReadBytesExt};
+use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::crc32;
+use self::itertools::Itertools;
+
+bitflags! {
+    pub struct PartitionAttributes: u64 {
+        const PLATFORM   = 0;
+        const EFI        = (1 << 0);
+        const BOOTABLE   = (1 << 1);
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Partition {
@@ -26,6 +37,39 @@ pub struct Partition {
     pub flags: u64,
     /// Name of the partition (36 UTF-16LE characters)
     pub name: String,
+}
+
+impl Partition {
+    fn as_bytes(&self) -> Result<Vec<u8>>{
+        let mut buff: Vec<u8> = Vec::new();
+
+        buff.write(self.part_type_guid.guid.as_bytes())?;
+        buff.write(self.part_guid.as_bytes())?;
+        buff.write_u64::<LittleEndian>(self.first_LBA)?;
+        buff.write_u64::<LittleEndian>(self.last_LBA)?;
+        buff.write_u64::<LittleEndian>(self.flags)?;
+        buff.write(self.name.as_bytes())?;
+
+        trace!("Partition Buffer: {:02x}", buff.iter().format(","));
+        Ok(buff)
+    }
+
+    pub fn write(&self, p: &Path, h: &Header) -> Result<()>{
+        // Write the partition to the part entry area
+        // and rerun crc32 for the Header
+        debug!("writing partition to file: {}", p.display());
+        let mut file = OpenOptions::new().write(true).read(true).open(p)?;
+        trace!("Seeking to {}", h.part_start * 512);
+        file.seek(SeekFrom::Start(h.part_start * 512))?;
+        file.write(&self.as_bytes()?)?;
+
+        let parts_checksum = partentry_checksum(&mut file)?;
+        // Seek to partition checksum location and overwrite
+        let _ = file.seek(SeekFrom::Start((h.current_lba * 512)+88))?;
+        file.write_u32::<LittleEndian>(parts_checksum)?;
+        
+        Ok(())
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
