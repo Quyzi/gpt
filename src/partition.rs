@@ -40,7 +40,7 @@ pub struct Partition {
 }
 
 impl Partition {
-    fn as_bytes(&self) -> Result<Vec<u8>>{
+    fn as_bytes(&self) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
 
         buff.write(self.part_type_guid.guid.as_bytes())?;
@@ -54,7 +54,7 @@ impl Partition {
         Ok(buff)
     }
 
-    pub fn write(&self, p: &Path, h: &Header) -> Result<()>{
+    pub fn write(&self, p: &Path, h: &Header) -> Result<()> {
         // Write the partition to the part entry area
         // and rerun crc32 for the Header
         debug!("writing partition to file: {}", p.display());
@@ -65,9 +65,9 @@ impl Partition {
 
         let parts_checksum = partentry_checksum(&mut file)?;
         // Seek to partition checksum location and overwrite
-        let _ = file.seek(SeekFrom::Start((h.current_lba * 512)+88))?;
+        let _ = file.seek(SeekFrom::Start((h.current_lba * 512) + 88))?;
         file.write_u32::<LittleEndian>(parts_checksum)?;
-        
+
         Ok(())
     }
 }

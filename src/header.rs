@@ -69,7 +69,9 @@ impl Header {
 
         let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
         // Write it to disk in 1 shot
-        bytes_written += file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        bytes_written += file.write(
+            &self.as_bytes(Some(checksum), Some(parts_checksum))?,
+        )?;
 
         Ok(bytes_written)
     }
@@ -197,6 +199,7 @@ fn find_backup_lba(f: &mut File) -> Result<u64> {
     trace!("Querying file size to find backup header location");
     let m = f.metadata()?;
     let backup_location = (m.len() - 512) / 512;
+    trace!("Backup location: {}", backup_location);
 
     Ok(backup_location)
 }
@@ -218,13 +221,13 @@ pub(crate) fn partentry_checksum(file: &mut File) -> Result<u32> {
 
     let mut digest = crc32::Digest::new(crc32::IEEE);
     digest.write(&buff);
-    
+
     Ok(digest.sum32())
 }
 
-fn protective_mbr(f: &mut File) -> Result<Vec<u8>>{
+fn protective_mbr(f: &mut File) -> Result<Vec<u8>> {
     let m = f.metadata()?;
-    let len = m.len()/512;
+    let len = m.len() / 512;
     let mut buff: Vec<u8> = Vec::new();
 
     //Boot Indicator. Must set to 00 so the partition can't be booted
@@ -240,17 +243,17 @@ fn protective_mbr(f: &mut File) -> Result<Vec<u8>>{
         buff.write_u8(0xFF)?;
         //Ending Cylinder. Same as Ending LBA of the single partition
         buff.write_u8(0xFF)?;
-    }else{
+    } else {
         buff.write_u8(len as u8)?;
         buff.write_u8(len as u8)?;
         buff.write_u8(len as u8)?;
     }
-    //Starting LBA. Always set to 1. 
+    //Starting LBA. Always set to 1.
     buff.write_u32::<LittleEndian>(1)?;
     //Size in LBA. The size of the partition. Set to FF FF FF FF if too large
-    if len as u32> u32::max_value(){
+    if len as u32 > u32::max_value() {
         buff.write_u32::<LittleEndian>(u32::max_value())?;
-    }else{
+    } else {
         buff.write_u32::<LittleEndian>(len as u32)?;
     }
 
@@ -258,7 +261,7 @@ fn protective_mbr(f: &mut File) -> Result<Vec<u8>>{
 }
 
 /// A helper function to create a new header and write it to disk.
-/// If the uuid isn't given a random one will be generated.  Use 
+/// If the uuid isn't given a random one will be generated.  Use
 /// this in conjunction with Partition::write()
 // TODO: Move this to Header::new() and Header::write to write it
 // that will match the Partition::write() API
