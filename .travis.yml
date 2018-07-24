@@ -1,3 +1,14 @@
-sudo: false
-language: rust
 dist: trusty
+language: rust
+rust:
+  - 1.26.0   # minimum supported toolchain
+  - stable
+  - beta
+  - nightly
+
+matrix:
+  allow_failures:
+    - rust: nightly
+
+script:
+  - cargo test
