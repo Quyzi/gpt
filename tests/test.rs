@@ -1,12 +1,20 @@
 extern crate gpt;
+extern crate log;
+extern crate simplelog;
+//extern crate mktemp;
 extern crate uuid;
 
+use std::fs::File;
+use std::io::Write;
 use std::str::FromStr;
-use gpt::header::{Header, read_header};
+use std::path::Path;
+use gpt::header::{Header, read_header, write_header};
 use gpt::partition::{Partition, PartitionType, read_partitions};
+use simplelog::{Config, SimpleLogger};
+//use mktemp::Temp;
 
 #[test]
-fn test_header() {
+fn test_read_header() {
     let expected_header = Header {
         signature: "EFI PART".to_string(),
         revision: 65536,
@@ -47,4 +55,43 @@ fn test_header() {
     println!("Partitions: {:?}", p);
     assert_eq!(p[0], expected_partition);
 
+}
+
+#[test]
+fn test_write_header() {
+    let _ = SimpleLogger::init(log::LogLevelFilter::Trace, Config::default());
+    {
+        let data: [u8; 4096] = [0; 4096];
+        println!("Creating blank header file for testing");
+        let mut f = File::create("tests/header").unwrap();
+        for _ in 0..100 {
+            f.write_all(&data).unwrap();
+        }
+    };
+    let header_file = Path::new("tests/header");
+    println!("Writing header");
+    let w = write_header(
+        &header_file,
+        Some(
+            uuid::Uuid::from_str("f400b934-48ef-4381-8f26-459f6b33c7df").unwrap(),
+        ),
+    );
+    println!("Wrote header: {:?}", w);
+    println!("Reading header");
+    let h = read_header("tests/header").unwrap();
+    println!("header: {:#?}", h);
+
+    let p = Partition {
+        part_type_guid: PartitionType {
+            os: "Linux".to_string(),
+            guid: "0FC63DAF-8483-4772-8E79-3D69D8477DE4".to_string(),
+            desc: "Linux Filesystem Data".to_string(),
+        },
+        part_guid: uuid::Uuid::new_v4(),
+        first_LBA: 36,
+        last_LBA: 40,
+        flags: 0,
+        name: "gpt test".to_string(),
+    };
+    p.write(header_file, &h).unwrap();
 }

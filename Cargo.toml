@@ -8,8 +8,11 @@ license = "MIT"
 homepage = "https://github.com/Quyzi/gpt"
 
 [dependencies]
+bitflags = "~1.0"
 byteorder = "~1.1"
 crc = "~1.5"
+itertools = "*"
 lazy_static = "~0.2"
 log = "~0.3"
-uuid = "~0.4"
+simplelog = "*"
+uuid = { version = "~0.4", features = ["v4"] }
