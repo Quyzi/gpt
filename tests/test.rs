@@ -59,7 +59,7 @@ fn test_read_header() {
 
 #[test]
 fn test_write_header() {
-    let _ = SimpleLogger::init(log::LogLevelFilter::Trace, Config::default());
+    let _ = SimpleLogger::init(simplelog::LevelFilter::Trace, Config::default());
     {
         let data: [u8; 4096] = [0; 4096];
         println!("Creating blank header file for testing");
