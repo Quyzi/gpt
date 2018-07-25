@@ -1,19 +1,22 @@
+//! Partition-related types and helper functions.
+
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
+use disk;
 use header::{parse_uuid, partentry_checksum, Header};
 
 extern crate byteorder;
 extern crate crc;
 extern crate itertools;
-extern crate uuid;
 
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::crc32;
 use self::itertools::Itertools;
 use partition_types::PART_HASHMAP;
+use uuid;
 
 bitflags! {
     pub struct PartitionAttributes: u64 {
@@ -138,8 +141,17 @@ fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
 pub fn read_partitions(path: &str, header: &Header) -> Result<Vec<Partition>> {
     debug!("reading partitions from file: {}", path);
     let mut file = File::open(path)?;
-    trace!("Seeking to {}", 512 * header.part_start);
-    let _ = file.seek(SeekFrom::Start(512 * header.part_start));
+    file_read_partitions(&mut file, header, disk::DEFAULT_SECTOR_SIZE.into())
+}
+
+/// Read a GPT partition table from an open `File` object.
+pub(crate) fn file_read_partitions(
+    file: &mut File,
+    header: &Header,
+    lb_size: u64,
+) -> Result<Vec<Partition>> {
+    trace!("Seeking to {}", lb_size * header.part_start);
+    let _ = file.seek(SeekFrom::Start(lb_size * header.part_start));
     let mut parts: Vec<Partition> = Vec::new();
 
     debug!("Reading partitions");
@@ -167,8 +179,8 @@ pub fn read_partitions(path: &str, header: &Header) -> Result<Vec<Partition>> {
         }
     }
 
-    trace!("Seeking to {}", 512 * header.part_start);
-    let _ = file.seek(SeekFrom::Start(512 * header.part_start));
+    trace!("Seeking to {}", lb_size * header.part_start);
+    let _ = file.seek(SeekFrom::Start(lb_size * header.part_start));
     let mut table: [u8; 16384] = [0; 16384];
     let _ = file.read_exact(&mut table);
 

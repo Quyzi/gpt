@@ -1,3 +1,5 @@
+//! GPT-header object and helper functions.
+
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
@@ -6,13 +8,13 @@ use std::path::Path;
 extern crate byteorder;
 extern crate crc;
 extern crate itertools;
-extern crate uuid;
 
 use self::itertools::Itertools;
 
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::{crc32, Hasher32};
-use self::uuid::Uuid;
+use partition;
+use uuid;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Header {
@@ -32,7 +34,7 @@ pub struct Header {
     pub backup_lba: u64, // Offset 32
     /// First usable LBA for partitions (primary table last LBA + 1)
     pub first_usable: u64, // Offset 40
-    /// Last usable LBA (seconary partition table first LBA - 1)
+    /// Last usable LBA (secondary partition table first LBA - 1)
     pub last_usable: u64, // Offset 48
     /// UUID of the disk
     pub disk_guid: uuid::Uuid, // Offset 56
@@ -47,9 +49,45 @@ pub struct Header {
 }
 
 impl Header {
+    pub(crate) fn compute_new(
+        primary: bool,
+        pp: &[partition::Partition],
+        guid: uuid::Uuid,
+        backup_offset: u64,
+    ) -> Result<Self> {
+        let (cur, bak) = if primary {
+            (1, backup_offset)
+        } else {
+            (backup_offset, 1)
+        };
+        let first = 34u64;
+        let last = backup_offset
+            .checked_sub(first)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?;
+
+        let hdr = Header {
+            signature: "EFI PART".to_string(),
+            revision: 65536,
+            header_size_le: 92,
+            crc32: 0,
+            reserved: 0,
+            current_lba: cur,
+            backup_lba: bak,
+            first_usable: first,
+            last_usable: last,
+            disk_guid: guid,
+            part_start: 2,
+            num_parts: pp.len() as u32,
+            part_size: 128,
+            crc32_parts: 0,
+        };
+
+        Ok(hdr)
+    }
+
     /// Write the header to a location.  With a crc32 set to zero
     /// this will set the crc32 after writing the Header out
-    fn write_primary(&self, file: &mut File) -> Result<usize> {
+    pub(crate) fn write_primary(&self, file: &mut File) -> Result<usize> {
         // Write Protective-MBR
         let mbr = protective_mbr(file)?;
         let _ = file.seek(SeekFrom::Start(448))?;
@@ -80,8 +118,7 @@ impl Header {
     }
 
     // TODO: implement writing backup header too.
-    #[allow(dead_code)]
-    fn write_backup(&self, file: &mut File) -> Result<usize> {
+    pub(crate) fn write_backup(&self, file: &mut File) -> Result<usize> {
         file.seek(SeekFrom::End(self.backup_lba as i64))?;
         Ok(0)
     }
@@ -115,11 +152,11 @@ impl Header {
 }
 
 /// Parses a uuid with first 3 portions in little endian.
-pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<Uuid> {
+pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
     let d1: u32 = rdr.read_u32::<LittleEndian>()?;
     let d2: u16 = rdr.read_u16::<LittleEndian>()?;
     let d3: u16 = rdr.read_u16::<LittleEndian>()?;
-    let uuid = Uuid::from_fields(
+    let uuid = uuid::Uuid::from_fields(
         d1,
         d2,
         d3,
@@ -162,10 +199,12 @@ pub(crate) fn read_primary_header(file: &mut File, sector_size: u64) -> Result<H
     res
 }
 
-#[allow(dead_code)]
 pub(crate) fn read_backup_header(file: &mut File, sector_size: u64) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
-    let offset = find_backup_lba(file, sector_size)?;
+    let h2sect = find_backup_lba(file, sector_size)?;
+    let offset = h2sect
+        .checked_mul(sector_size)
+        .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
     let res = file_read_header(file, offset);
     let _ = file.seek(SeekFrom::Start(cur));
     res
@@ -217,7 +256,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
     }
 }
 
-fn find_backup_lba(f: &mut File, sector_size: u64) -> Result<u64> {
+pub(crate) fn find_backup_lba(f: &mut File, sector_size: u64) -> Result<u64> {
     trace!("Querying file size to find backup header location");
     let m = f.metadata()?;
     if m.len() <= sector_size {
@@ -227,7 +266,7 @@ fn find_backup_lba(f: &mut File, sector_size: u64) -> Result<u64> {
         ));
     }
     let backup_location = (m.len().saturating_sub(sector_size)) / sector_size;
-    trace!("Backup location: {}", backup_location);
+    trace!("Backup location: {:#x}", backup_location);
 
     Ok(backup_location)
 }
@@ -292,39 +331,22 @@ fn protective_mbr(f: &mut File) -> Result<Vec<u8>> {
 /// this in conjunction with Partition::write()
 // TODO: Move this to Header::new() and Header::write to write it
 // that will match the Partition::write() API
-pub fn write_header(p: &Path, uuid: Option<Uuid>) -> Result<Uuid> {
-    let return_uuid: Uuid;
+pub fn write_header(p: &Path, uuid: Option<uuid::Uuid>) -> Result<uuid::Uuid> {
     debug!("opening {} for writing", p.display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-    let backup_location = find_backup_lba(&mut file, 512)?;
-
-    if let Some(disk_guid) = uuid {
-        return_uuid = disk_guid;
-    } else {
-        debug!("Generating random uuid");
-        return_uuid = Uuid::new_v4();
-    }
-
-    let h = Header {
-        signature: "EFI PART".to_string(),
-        revision: 65536,
-        header_size_le: 92,
-        crc32: 0,
-        reserved: 0,
-        current_lba: 1,
-        // LBA -1
-        backup_lba: backup_location,
-        first_usable: 34,
-        // LBA -34
-        last_usable: backup_location - 33,
-        disk_guid: return_uuid,
-        part_start: 2,
-        num_parts: 128,
-        part_size: 128,
-        crc32_parts: 0,
+    let bak = find_backup_lba(&mut file, 512)?;
+    let guid = match uuid {
+        Some(u) => u,
+        None => {
+            let u = uuid::Uuid::new_v4();
+            debug!("Generated random uuid: {}", u);
+            u
+        }
     };
-    debug!("Header: {:#?}", h);
-    h.write_primary(&mut file)?;
 
-    Ok(return_uuid)
+    let hdr = Header::compute_new(true, &[], guid, bak)?;
+    debug!("new header: {:#?}", hdr);
+    hdr.write_primary(&mut file)?;
+
+    Ok(guid)
 }
