@@ -9,11 +9,11 @@ homepage = "https://github.com/Quyzi/gpt"
 
 [dependencies]
 bitflags = "~1.0"
-byteorder = "~1.1"
-crc = "~1.5"
+byteorder = "~1.2"
+crc = "~1.8"
 itertools = "~0.7"
-lazy_static = "~0.2"
-log = "~0.3"
+lazy_static = "~1.0"
+log = "~0.4"
 uuid = { version = "~0.6", features = ["v4"] }
 
 [dev-dependencies]
