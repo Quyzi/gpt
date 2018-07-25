@@ -30,9 +30,9 @@ pub struct Partition {
     /// UUID of the partition.
     pub part_guid: uuid::Uuid,
     /// First LBA of the partition
-    pub first_LBA: u64,
+    pub first_lba: u64,
     /// Last LBA of the partition
-    pub last_LBA: u64,
+    pub last_lba: u64,
     /// Partition flags
     pub flags: u64,
     /// Name of the partition (36 UTF-16LE characters)
@@ -45,8 +45,8 @@ impl Partition {
 
         buff.write(self.part_type_guid.guid.as_bytes())?;
         buff.write(self.part_guid.as_bytes())?;
-        buff.write_u64::<LittleEndian>(self.first_LBA)?;
-        buff.write_u64::<LittleEndian>(self.last_LBA)?;
+        buff.write_u64::<LittleEndian>(self.first_lba)?;
+        buff.write_u64::<LittleEndian>(self.last_lba)?;
         buff.write_u64::<LittleEndian>(self.flags)?;
         buff.write(self.name.as_bytes())?;
 
@@ -89,8 +89,8 @@ impl fmt::Display for Partition {
             self.part_guid,
             self.part_type_guid.guid,
             self.part_type_guid.desc,
-            self.first_LBA,
-            self.last_LBA,
+            self.first_lba,
+            self.last_lba,
             self.flags
         )
     }
@@ -158,8 +158,8 @@ pub fn read_partitions(path: &str, header: &Header) -> Result<Vec<Partition>> {
         let p: Partition = Partition {
             part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
             part_guid: parse_uuid(&mut reader)?,
-            first_LBA: reader.read_u64::<LittleEndian>()?,
-            last_LBA: reader.read_u64::<LittleEndian>()?,
+            first_lba: reader.read_u64::<LittleEndian>()?,
+            last_lba: reader.read_u64::<LittleEndian>()?,
             flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
         };

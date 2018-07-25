@@ -39,8 +39,8 @@ fn test_read_header() {
             desc: "Linux Filesystem Data".to_string(),
         },
         part_guid: uuid::Uuid::from_str("6fcc8240-3985-4840-901f-a05e7fd9b69d").unwrap(),
-        first_LBA: 34,
-        last_LBA: 62,
+        first_lba: 34,
+        last_lba: 62,
         flags: 0,
         name: "primary".to_string(),
     };
@@ -88,8 +88,8 @@ fn test_write_header() {
             desc: "Linux Filesystem Data".to_string(),
         },
         part_guid: uuid::Uuid::new_v4(),
-        first_LBA: 36,
-        last_LBA: 40,
+        first_lba: 36,
+        last_lba: 40,
         flags: 0,
         name: "gpt test".to_string(),
     };
