@@ -76,9 +76,10 @@ impl Header {
         Ok(bytes_written)
     }
 
+    // TODO: implement writing backup header too.
+    #[allow(dead_code)]
     fn write_backup(&self, file: &mut File) -> Result<usize> {
         file.seek(SeekFrom::End(self.backup_lba as i64))?;
-
         Ok(0)
     }
 
