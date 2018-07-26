@@ -4,13 +4,13 @@ extern crate simplelog;
 //extern crate mktemp;
 extern crate uuid;
 
+use gpt::header::{read_header, write_header, Header};
+use gpt::partition::{read_partitions, Partition, PartitionType};
+use simplelog::{Config, SimpleLogger};
 use std::fs::File;
 use std::io::Write;
-use std::str::FromStr;
 use std::path::Path;
-use gpt::header::{Header, read_header, write_header};
-use gpt::partition::{Partition, PartitionType, read_partitions};
-use simplelog::{Config, SimpleLogger};
+use std::str::FromStr;
 //use mktemp::Temp;
 
 #[test]
@@ -54,7 +54,6 @@ fn test_read_header() {
     let p = read_partitions(&filename, &h).unwrap();
     println!("Partitions: {:?}", p);
     assert_eq!(p[0], expected_partition);
-
 }
 
 #[test]
@@ -72,9 +71,7 @@ fn test_write_header() {
     println!("Writing header");
     let w = write_header(
         &header_file,
-        Some(
-            uuid::Uuid::from_str("f400b934-48ef-4381-8f26-459f6b33c7df").unwrap(),
-        ),
+        Some(uuid::Uuid::from_str("f400b934-48ef-4381-8f26-459f6b33c7df").unwrap()),
     );
     println!("Wrote header: {:?}", w);
     println!("Reading header");
