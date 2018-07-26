@@ -1,6 +1,6 @@
-use std::fs::{File, OpenOptions};
-use std::io::{Cursor, SeekFrom, Error, ErrorKind, Read, Result, Seek, Write};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
 extern crate byteorder;
@@ -11,8 +11,8 @@ extern crate uuid;
 use self::itertools::Itertools;
 
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use self::uuid::Uuid;
 use self::crc::{crc32, Hasher32};
+use self::uuid::Uuid;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Header {
@@ -69,9 +69,7 @@ impl Header {
 
         let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
         // Write it to disk in 1 shot
-        bytes_written += file.write(
-            &self.as_bytes(Some(checksum), Some(parts_checksum))?,
-        )?;
+        bytes_written += file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
 
         Ok(bytes_written)
     }
@@ -135,9 +133,7 @@ impl fmt::Display for Header {
         write!(
             f,
             "Disk:\t\t{}\nCRC32:\t\t{}\nTable CRC:\t{}",
-            self.disk_guid,
-            self.crc32,
-            self.crc32_parts
+            self.disk_guid, self.crc32, self.crc32_parts
         )
     }
 }
@@ -205,7 +201,6 @@ fn find_backup_lba(f: &mut File) -> Result<u64> {
     Ok(backup_location)
 }
 
-
 fn calculate_crc32(b: &[u8]) -> Result<u32> {
     let mut digest = crc32::Digest::new(crc32::IEEE);
     trace!("Writing buffer to digest calculator");
@@ -237,7 +232,7 @@ fn protective_mbr(f: &mut File) -> Result<Vec<u8>> {
     buff.write_u8(0)?; // starting sector
     buff.write_u8(0)?; // starting cylinder
     buff.write_u8(0xEE)?; // System ID.  Must be EE for GPT
-    //Ending Head. Same as Ending LBA of the single partition
+                          //Ending Head. Same as Ending LBA of the single partition
     if len > 255 {
         buff.write_u8(0xFF)?;
         //Ending Sector. Same as Ending LBA of the single partition

@@ -1,19 +1,19 @@
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, Cursor, SeekFrom, Error, ErrorKind, Result, Write};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use header::{Header, parse_uuid, partentry_checksum};
+use header::{parse_uuid, partentry_checksum, Header};
 
 extern crate byteorder;
 extern crate crc;
 extern crate itertools;
 extern crate uuid;
 
-use partition_types::PART_HASHMAP;
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::crc32;
 use self::itertools::Itertools;
+use partition_types::PART_HASHMAP;
 
 bitflags! {
     pub struct PartitionAttributes: u64 {
@@ -84,7 +84,7 @@ impl fmt::Display for Partition {
         write!(
             f,
             "Partition:\t\t{}\nPartition GUID:\t\t{}\nPartition Type:\t\t{}\t{}\n\
-            Span:\t\t\t{} - {}\nFlags:\t\t\t{}",
+             Span:\t\t\t{} - {}\nFlags:\t\t\t{}",
             self.name,
             self.part_guid,
             self.part_type_guid.guid,
@@ -114,13 +114,11 @@ fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
     let uuid = str.hyphenated().to_string().to_uppercase();
     debug!("Looking up partition type");
     match PART_HASHMAP.get(&uuid) {
-        Some(part_id) => {
-            PartitionType {
-                guid: uuid,
-                os: part_id.0.into(),
-                desc: part_id.1.into(),
-            }
-        }
+        Some(part_id) => PartitionType {
+            guid: uuid,
+            os: part_id.0.into(),
+            desc: part_id.1.into(),
+        },
         None => {
             error!("Unknown partition type: {}", uuid);
             PartitionType {
