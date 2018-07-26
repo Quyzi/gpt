@@ -282,6 +282,22 @@ pub static ref PART_HASHMAP: HashMap<String, (&'static str, &'static str)> = {
         "ChromeOS",
         "ChromeOS Future Use",
     ));
+    m.insert("5DFBF5F4-2848-4BAC-AA5E-0D9A20B745A6".into(), (
+        "ContainerLinux by CoreOS",
+        "/usr partition (coreos-usr)",
+    ));
+    m.insert("3884DD41-8582-4404-B9A8-E9B84F2DF50E".into(), (
+        "ContainerLinux by CoreOS",
+        "Resizable rootfs (coreos-resize)",
+    ));
+    m.insert("C95DC21A-DF0E-4340-8D7B-26CBFA9A03E0".into(), (
+        "ContainerLinux by CoreOS",
+        "OEM customizations (coreos-reserved)",
+    ));
+    m.insert("BE9067B9-EA49-4F15-B4F6-F36F8C9E1818".into(), (
+        "ContainerLinux by CoreOS",
+        "Root filesystem on RAID (coreos-root-raid)",
+    ));
     m.insert(
         "42465331-3BA3-10F1-802A-4861696B7521".into(),
         ("Haiku", "Haiku BFS"),
