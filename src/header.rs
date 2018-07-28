@@ -50,15 +50,18 @@ impl Header {
     /// Write the header to a location.  With a crc32 set to zero
     /// this will set the crc32 after writing the Header out
     fn write_primary(&self, file: &mut File) -> Result<usize> {
-        let mut bytes_written = 0;
+        // Write Protective-MBR
         let mbr = protective_mbr(file)?;
-
-        //Write protective_mbr
         let _ = file.seek(SeekFrom::Start(448))?;
-        bytes_written += file.write(&mbr)?;
-        // signature word
+        let mut bytes_written = file.write(&mbr)?;
+
+        // Write signature bytes
         let _ = file.seek(SeekFrom::Start(510))?;
-        bytes_written += file.write(&[0x55, 0xAA])?;
+        let sig_len = file.write(&[0x55, 0xAA])?;
+        bytes_written = bytes_written.checked_add(sig_len).ok_or(Error::new(
+            ErrorKind::Other,
+            "primary header overflow - signature",
+        ))?;
 
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file)?;
@@ -67,9 +70,13 @@ impl Header {
         // Calculate the crc32 from the byte array
         let checksum = calculate_crc32(&bytes)?;
 
-        let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
         // Write it to disk in 1 shot
-        bytes_written += file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
+        let csum_len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        bytes_written = bytes_written.checked_add(csum_len).ok_or(Error::new(
+            ErrorKind::Other,
+            "primary header overflow - checksum",
+        ))?;
 
         Ok(bytes_written)
     }
