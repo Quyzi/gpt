@@ -18,7 +18,7 @@ use partition_types::PART_HASHMAP;
 bitflags! {
     pub struct PartitionAttributes: u64 {
         const PLATFORM   = 0;
-        const EFI        = (1 << 0);
+        const EFI        = 1;
         const BOOTABLE   = (1 << 1);
     }
 }
@@ -43,12 +43,12 @@ impl Partition {
     fn as_bytes(&self) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
 
-        buff.write(self.part_type_guid.guid.as_bytes())?;
-        buff.write(self.part_guid.as_bytes())?;
+        buff.write_all(self.part_type_guid.guid.as_bytes())?;
+        buff.write_all(self.part_guid.as_bytes())?;
         buff.write_u64::<LittleEndian>(self.first_lba)?;
         buff.write_u64::<LittleEndian>(self.last_lba)?;
         buff.write_u64::<LittleEndian>(self.flags)?;
-        buff.write(self.name.as_bytes())?;
+        buff.write_all(self.name.as_bytes())?;
 
         trace!("Partition Buffer: {:02x}", buff.iter().format(","));
         Ok(buff)
@@ -61,7 +61,7 @@ impl Partition {
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
         trace!("Seeking to {}", h.part_start * 512);
         file.seek(SeekFrom::Start(h.part_start * 512))?;
-        file.write(&self.as_bytes()?)?;
+        file.write_all(&self.as_bytes()?)?;
 
         let parts_checksum = partentry_checksum(&mut file)?;
         // Seek to partition checksum location and overwrite
@@ -106,23 +106,23 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
         }
     }
 
-    return Ok(String::from_utf16_lossy(&namebytes));
+    Ok(String::from_utf16_lossy(&namebytes))
 }
 
-fn parse_parttype_guid(str: uuid::Uuid) -> PartitionType {
+fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
     debug!("Parsing partition guid");
-    let uuid = str.hyphenated().to_string().to_uppercase();
+    let s = u.hyphenated().to_string().to_uppercase();
     debug!("Looking up partition type");
-    match PART_HASHMAP.get(&uuid) {
+    match PART_HASHMAP.get(&s) {
         Some(part_id) => PartitionType {
-            guid: uuid,
+            guid: s,
             os: part_id.0.into(),
             desc: part_id.1.into(),
         },
         None => {
-            error!("Unknown partition type: {}", uuid);
+            error!("Unknown partition type: {}", s);
             PartitionType {
-                guid: uuid,
+                guid: s,
                 os: "".to_string(),
                 desc: "".to_string(),
             }

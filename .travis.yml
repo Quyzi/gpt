@@ -1,7 +1,8 @@
 dist: trusty
 language: rust
 rust:
-  - 1.26.0   # minimum supported toolchain
+  - nightly-2018-06-11  # pinned toolchain for clippy
+  - 1.26.0              # minimum supported toolchain
   - stable
   - beta
   - nightly
@@ -10,5 +11,18 @@ matrix:
   allow_failures:
     - rust: nightly
 
+env:
+  global:
+    - CLIPPY_VERSION=0.0.207
+    - CLIPPY_RUST_VERSION=nightly-2018-06-11
+
+before_script:
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "$CLIPPY_RUST_VERSION" ]]; then
+      cargo install clippy --vers $CLIPPY_VERSION --force;
+    fi'
+
 script:
   - cargo test
+  - bash -c 'if [[ "$TRAVIS_RUST_VERSION" == "$CLIPPY_RUST_VERSION" ]]; then
+      cargo clippy -- -D warnings;
+    fi'
