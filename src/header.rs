@@ -84,7 +84,7 @@ impl Header {
     fn as_bytes(&self, checksum: Option<u32>, parts_checksum: Option<u32>) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
 
-        buff.write(self.signature.as_bytes())?;
+        buff.write_all(self.signature.as_bytes())?;
         buff.write_u32::<LittleEndian>(self.revision)?;
         buff.write_u32::<LittleEndian>(self.header_size_le)?;
         match checksum {
@@ -96,7 +96,7 @@ impl Header {
         buff.write_u64::<LittleEndian>(self.backup_lba)?;
         buff.write_u64::<LittleEndian>(self.first_usable)?;
         buff.write_u64::<LittleEndian>(self.last_usable)?;
-        buff.write(self.disk_guid.as_bytes())?;
+        buff.write_all(self.disk_guid.as_bytes())?;
         buff.write_u64::<LittleEndian>(self.part_start)?;
         buff.write_u32::<LittleEndian>(self.num_parts)?;
         buff.write_u32::<LittleEndian>(self.part_size)?;
@@ -180,15 +180,15 @@ pub fn read_header(path: &str) -> Result<Header> {
     };
 
     let mut hdr_crc = hdr;
-    for i in 16..20 {
-        hdr_crc[i] = 0;
+    for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
+        *crc_byte = 0;
     }
     let c = crc32::checksum_ieee(&hdr_crc);
     trace!("hdr_crc: {:?}, h.crc32: {:?}", c, h.crc32);
     if crc32::checksum_ieee(&hdr_crc) == h.crc32 {
         Ok(h)
     } else {
-        return Err(Error::new(ErrorKind::Other, "Invalid CRC32."));
+        Err(Error::new(ErrorKind::Other, "invalid CRC32"))
     }
 }
 
