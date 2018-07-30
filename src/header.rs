@@ -58,10 +58,9 @@ impl Header {
         // Write signature bytes
         let _ = file.seek(SeekFrom::Start(510))?;
         let sig_len = file.write(&[0x55, 0xAA])?;
-        bytes_written = bytes_written.checked_add(sig_len).ok_or(Error::new(
-            ErrorKind::Other,
-            "primary header overflow - signature",
-        ))?;
+        bytes_written = bytes_written
+            .checked_add(sig_len)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - signature"))?;
 
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file)?;
@@ -73,10 +72,9 @@ impl Header {
         // Write it to disk in 1 shot
         let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
         let csum_len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
-        bytes_written = bytes_written.checked_add(csum_len).ok_or(Error::new(
-            ErrorKind::Other,
-            "primary header overflow - checksum",
-        ))?;
+        bytes_written = bytes_written
+            .checked_add(csum_len)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - checksum"))?;
 
         Ok(bytes_written)
     }
@@ -153,8 +151,28 @@ impl fmt::Display for Header {
 ///
 pub fn read_header(path: &str) -> Result<Header> {
     let mut file = File::open(path)?;
-    let _ = file.seek(SeekFrom::Start(512));
+    read_primary_header(&mut file, 512)
+}
 
+pub(crate) fn read_primary_header(file: &mut File, sector_size: u64) -> Result<Header> {
+    let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
+    let offset = sector_size;
+    let res = file_read_header(file, offset);
+    let _ = file.seek(SeekFrom::Start(cur));
+    res
+}
+
+#[allow(dead_code)]
+pub(crate) fn read_backup_header(file: &mut File, sector_size: u64) -> Result<Header> {
+    let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
+    let offset = find_backup_lba(file, sector_size)?;
+    let res = file_read_header(file, offset);
+    let _ = file.seek(SeekFrom::Start(cur));
+    res
+}
+
+pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
+    let _ = file.seek(SeekFrom::Start(offset));
     let mut hdr: [u8; 92] = [0; 92];
 
     let _ = file.read_exact(&mut hdr);
@@ -166,7 +184,7 @@ pub fn read_header(path: &str) -> Result<Header> {
     reader.seek(SeekFrom::Current(8))?;
 
     if sigstr != "EFI PART" {
-        return Err(Error::new(ErrorKind::Other, "Invalid GPT Signature."));
+        return Err(Error::new(ErrorKind::Other, "invalid GPT signature"));
     };
 
     let h = Header {
@@ -195,14 +213,20 @@ pub fn read_header(path: &str) -> Result<Header> {
     if crc32::checksum_ieee(&hdr_crc) == h.crc32 {
         Ok(h)
     } else {
-        Err(Error::new(ErrorKind::Other, "invalid CRC32"))
+        Err(Error::new(ErrorKind::Other, "invalid CRC32 checksum"))
     }
 }
 
-fn find_backup_lba(f: &mut File) -> Result<u64> {
+fn find_backup_lba(f: &mut File, sector_size: u64) -> Result<u64> {
     trace!("Querying file size to find backup header location");
     let m = f.metadata()?;
-    let backup_location = (m.len() - 512) / 512;
+    if m.len() <= sector_size {
+        return Err(Error::new(
+            ErrorKind::Other,
+            "disk image too small for backup header",
+        ));
+    }
+    let backup_location = (m.len().saturating_sub(sector_size)) / sector_size;
     trace!("Backup location: {}", backup_location);
 
     Ok(backup_location)
@@ -272,7 +296,7 @@ pub fn write_header(p: &Path, uuid: Option<Uuid>) -> Result<Uuid> {
     let return_uuid: Uuid;
     debug!("opening {} for writing", p.display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-    let backup_location = find_backup_lba(&mut file)?;
+    let backup_location = find_backup_lba(&mut file, 512)?;
 
     if let Some(disk_guid) = uuid {
         return_uuid = disk_guid;
