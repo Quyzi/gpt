@@ -13,6 +13,7 @@ use self::itertools::Itertools;
 
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::{crc32, Hasher32};
+use disk;
 use partition;
 use uuid;
 
@@ -87,9 +88,13 @@ impl Header {
 
     /// Write the header to a location.  With a crc32 set to zero
     /// this will set the crc32 after writing the Header out
-    pub(crate) fn write_primary(&self, file: &mut File) -> Result<usize> {
+    pub(crate) fn write_primary(
+        &self,
+        file: &mut File,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<usize> {
         // Write Protective-MBR
-        let mbr = protective_mbr(file)?;
+        let mbr = protective_mbr(file, lb_size)?;
         let _ = file.seek(SeekFrom::Start(448))?;
         let mut bytes_written = file.write(&mbr)?;
 
@@ -101,14 +106,17 @@ impl Header {
             .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - signature"))?;
 
         // Build up byte array in memory
-        let parts_checksum = partentry_checksum(file)?;
+        let parts_checksum = partentry_checksum(file, lb_size)?;
         let bytes = self.as_bytes(None, Some(parts_checksum))?;
 
         // Calculate the crc32 from the byte array
         let checksum = calculate_crc32(&bytes)?;
 
         // Write it to disk in 1 shot
-        let _ = file.seek(SeekFrom::Start(self.current_lba * 512))?;
+        let start = self.current_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - offset"))?;
+        let _ = file.seek(SeekFrom::Start(start))?;
         let csum_len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
         bytes_written = bytes_written
             .checked_add(csum_len)
@@ -118,8 +126,15 @@ impl Header {
     }
 
     // TODO: implement writing backup header too.
-    pub(crate) fn write_backup(&self, file: &mut File) -> Result<usize> {
-        file.seek(SeekFrom::End(self.backup_lba as i64))?;
+    pub(crate) fn write_backup(
+        &self,
+        file: &mut File,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<usize> {
+        let start = self.backup_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
+        let _ = file.seek(SeekFrom::Start(start))?;
         Ok(0)
     }
 
@@ -186,24 +201,30 @@ impl fmt::Display for Header {
 ///
 /// let h = read_header("/dev/sda")?;
 ///
-pub fn read_header(path: &str) -> Result<Header> {
+pub fn read_header(path: &Path, sector_size: disk::LogicalBlockSize) -> Result<Header> {
     let mut file = File::open(path)?;
-    read_primary_header(&mut file, 512)
+    read_primary_header(&mut file, sector_size)
 }
 
-pub(crate) fn read_primary_header(file: &mut File, sector_size: u64) -> Result<Header> {
+pub(crate) fn read_primary_header(
+    file: &mut File,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
-    let offset = sector_size;
+    let offset: u64 = sector_size.into();
     let res = file_read_header(file, offset);
     let _ = file.seek(SeekFrom::Start(cur));
     res
 }
 
-pub(crate) fn read_backup_header(file: &mut File, sector_size: u64) -> Result<Header> {
+pub(crate) fn read_backup_header(
+    file: &mut File,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
     let h2sect = find_backup_lba(file, sector_size)?;
     let offset = h2sect
-        .checked_mul(sector_size)
+        .checked_mul(sector_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
     let res = file_read_header(file, offset);
     let _ = file.seek(SeekFrom::Start(cur));
@@ -256,16 +277,17 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
     }
 }
 
-pub(crate) fn find_backup_lba(f: &mut File, sector_size: u64) -> Result<u64> {
+pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
     trace!("Querying file size to find backup header location");
+    let lb_size: u64 = sector_size.into();
     let m = f.metadata()?;
-    if m.len() <= sector_size {
+    if m.len() <= lb_size {
         return Err(Error::new(
             ErrorKind::Other,
             "disk image too small for backup header",
         ));
     }
-    let backup_location = (m.len().saturating_sub(sector_size)) / sector_size;
+    let backup_location = (m.len().saturating_sub(lb_size)) / lb_size;
     trace!("Backup location: {:#x}", backup_location);
 
     Ok(backup_location)
@@ -279,9 +301,11 @@ fn calculate_crc32(b: &[u8]) -> Result<u32> {
     Ok(digest.sum32())
 }
 
-pub(crate) fn partentry_checksum(file: &mut File) -> Result<u32> {
+pub(crate) fn partentry_checksum(file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<u32> {
     // Seek to LBA 2
-    let _ = file.seek(SeekFrom::Start(2 * 512))?;
+    let start = 2u64.checked_mul(lb_size.into())
+        .ok_or_else(|| Error::new(ErrorKind::Other, "checksum overflow - offset"))?;
+    let _ = file.seek(SeekFrom::Start(start))?;
     let mut buff: [u8; 65536] = [0; 65536];
     file.read_exact(&mut buff)?;
 
@@ -291,9 +315,10 @@ pub(crate) fn partentry_checksum(file: &mut File) -> Result<u32> {
     Ok(digest.sum32())
 }
 
-fn protective_mbr(f: &mut File) -> Result<Vec<u8>> {
+fn protective_mbr(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<Vec<u8>> {
+    let lb_size: u64 = sector_size.into();
     let m = f.metadata()?;
-    let len = m.len() / 512;
+    let len = m.len() / lb_size;
     let mut buff: Vec<u8> = Vec::new();
 
     //Boot Indicator. Must set to 00 so the partition can't be booted
@@ -331,10 +356,14 @@ fn protective_mbr(f: &mut File) -> Result<Vec<u8>> {
 /// this in conjunction with Partition::write()
 // TODO: Move this to Header::new() and Header::write to write it
 // that will match the Partition::write() API
-pub fn write_header(p: &Path, uuid: Option<uuid::Uuid>) -> Result<uuid::Uuid> {
+pub fn write_header(
+    p: &Path,
+    uuid: Option<uuid::Uuid>,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<uuid::Uuid> {
     debug!("opening {} for writing", p.display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-    let bak = find_backup_lba(&mut file, 512)?;
+    let bak = find_backup_lba(&mut file, sector_size)?;
     let guid = match uuid {
         Some(u) => u,
         None => {
@@ -346,7 +375,7 @@ pub fn write_header(p: &Path, uuid: Option<uuid::Uuid>) -> Result<uuid::Uuid> {
 
     let hdr = Header::compute_new(true, &[], guid, bak)?;
     debug!("new header: {:#?}", hdr);
-    hdr.write_primary(&mut file)?;
+    hdr.write_primary(&mut file, sector_size)?;
 
     Ok(guid)
 }

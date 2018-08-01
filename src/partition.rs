@@ -66,7 +66,7 @@ impl Partition {
         file.seek(SeekFrom::Start(h.part_start * 512))?;
         file.write_all(&self.as_bytes()?)?;
 
-        let parts_checksum = partentry_checksum(&mut file)?;
+        let parts_checksum = partentry_checksum(&mut file, disk::DEFAULT_SECTOR_SIZE)?;
         // Seek to partition checksum location and overwrite
         let _ = file.seek(SeekFrom::Start((h.current_lba * 512) + 88))?;
         file.write_u32::<LittleEndian>(parts_checksum)?;

@@ -4,6 +4,7 @@ extern crate simplelog;
 //extern crate mktemp;
 extern crate uuid;
 
+use gpt::disk;
 use gpt::header::{read_header, write_header, Header};
 use gpt::partition::{read_partitions, Partition, PartitionType};
 use simplelog::{Config, SimpleLogger};
@@ -45,8 +46,8 @@ fn test_read_header() {
         name: "primary".to_string(),
     };
 
-    let filename = "tests/test_gpt".to_string();
-    let h = read_header(&filename).unwrap();
+    let filename = "tests/test_gpt";
+    let h = read_header(Path::new(filename), disk::DEFAULT_SECTOR_SIZE).unwrap();
 
     println!("header: {:?}", h);
     assert_eq!(h, expected_header);
@@ -72,10 +73,11 @@ fn test_write_header() {
     let w = write_header(
         &header_file,
         Some(uuid::Uuid::from_str("f400b934-48ef-4381-8f26-459f6b33c7df").unwrap()),
+        disk::DEFAULT_SECTOR_SIZE,
     );
     println!("Wrote header: {:?}", w);
     println!("Reading header");
-    let h = read_header("tests/header").unwrap();
+    let h = read_header(Path::new("tests/header"), disk::DEFAULT_SECTOR_SIZE).unwrap();
     println!("header: {:#?}", h);
 
     let p = Partition {
