@@ -18,12 +18,13 @@ use gpt::header::{Header, read_header};
 use gpt::partition::{Partition, read_partitions};
 
 fn inspect_disk() {
-    let filename = "/dev/sda";
+    let lb_size = gpt::disk::DEFAULT_SECTOR_SIZE;
+    let diskpath = std::path::Path::new("/dev/sdz");
 
-    let h = read_header(filename).unwrap();
+    let hdr = header::read_header(diskpath, lb_size).unwrap();
     println!("Disk header: {:#?}", h);
 
-    let p = read_partitions(filename, &h).unwrap();
-    println!("Partition layout: {:#?}", p);
+    let pp = read_partitions(diskpath, &hdr, lb_size).unwrap();
+    println!("Partition layout: {:#?}", pp);
 }
 ```

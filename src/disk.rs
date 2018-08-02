@@ -25,6 +25,14 @@ impl Into<u64> for LogicalBlockSize {
 }
 
 /// Open and read a GPT disk, using default configuration options.
+///
+/// ## Example
+///
+/// ```rust,no_run
+/// let diskpath = std::path::Path::new("/dev/sdz");
+/// let gpt_disk = gpt::disk::read_disk(diskpath).unwrap();
+/// println!("{:#?}", gpt_disk);
+/// ```
 pub fn read_disk(diskpath: &path::Path) -> io::Result<GptDisk> {
     let cfg = GptConfig::new();
     cfg.open(diskpath)
