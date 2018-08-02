@@ -46,13 +46,13 @@ fn test_read_header() {
         name: "primary".to_string(),
     };
 
-    let filename = "tests/test_gpt";
-    let h = read_header(Path::new(filename), disk::DEFAULT_SECTOR_SIZE).unwrap();
+    let diskpath = Path::new("tests/test_gpt");
+    let h = read_header(diskpath, disk::DEFAULT_SECTOR_SIZE).unwrap();
 
     println!("header: {:?}", h);
     assert_eq!(h, expected_header);
 
-    let p = read_partitions(&filename, &h).unwrap();
+    let p = read_partitions(diskpath, &h, disk::DEFAULT_SECTOR_SIZE).unwrap();
     println!("Partitions: {:?}", p);
     assert_eq!(p[0], expected_partition);
 }
@@ -92,5 +92,5 @@ fn test_write_header() {
         flags: 0,
         name: "gpt test".to_string(),
     };
-    p.write(header_file, &h).unwrap();
+    p.write(header_file, &h, disk::DEFAULT_SECTOR_SIZE).unwrap();
 }

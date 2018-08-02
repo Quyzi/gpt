@@ -1,4 +1,7 @@
 //! Partition-related types and helper functions.
+//!
+//! This module provides access to low-level primitives
+//! to work with GPT partitions.
 
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -19,6 +22,7 @@ use partition_types::PART_HASHMAP;
 use uuid;
 
 bitflags! {
+    /// Partition entry attributes, defined for UEFI.
     pub struct PartitionAttributes: u64 {
         const PLATFORM   = 0;
         const EFI        = 1;
@@ -26,19 +30,20 @@ bitflags! {
     }
 }
 
+/// A partition entry in a GPT partition table.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Partition {
-    /// Contains the GUID of the type of partition.
+    /// GUID of the partition type.
     pub part_type_guid: PartitionType,
     /// UUID of the partition.
     pub part_guid: uuid::Uuid,
-    /// First LBA of the partition
+    /// First LBA of the partition.
     pub first_lba: u64,
-    /// Last LBA of the partition
+    /// Last LBA of the partition.
     pub last_lba: u64,
-    /// Partition flags
+    /// Partition flags.
     pub flags: u64,
-    /// Name of the partition (36 UTF-16LE characters)
+    /// Name of the partition (36 UTF-16LE characters).
     pub name: String,
 }
 
@@ -53,33 +58,41 @@ impl Partition {
         buff.write_u64::<LittleEndian>(self.flags)?;
         buff.write_all(self.name.as_bytes())?;
 
-        trace!("Partition Buffer: {:02x}", buff.iter().format(","));
+        trace!("partition buffer: {:02x}", buff.iter().format(","));
         Ok(buff)
     }
 
-    pub fn write(&self, p: &Path, h: &Header) -> Result<()> {
-        // Write the partition to the part entry area
-        // and rerun crc32 for the Header
+    /// Write the partition entry to the partitions area and update crc32 for the Header.
+    pub fn write(&self, p: &Path, h: &Header, lb_size: disk::LogicalBlockSize) -> Result<()> {
         debug!("writing partition to file: {}", p.display());
+        let pstart = h.part_start
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-        trace!("Seeking to {}", h.part_start * 512);
-        file.seek(SeekFrom::Start(h.part_start * 512))?;
+        trace!("seeking to partition start: {:#x}", pstart);
+        file.seek(SeekFrom::Start(pstart))?;
         file.write_all(&self.as_bytes()?)?;
 
-        let parts_checksum = partentry_checksum(&mut file, disk::DEFAULT_SECTOR_SIZE)?;
-        // Seek to partition checksum location and overwrite
-        let _ = file.seek(SeekFrom::Start((h.current_lba * 512) + 88))?;
+        let parts_checksum = partentry_checksum(&mut file, lb_size)?;
+        // Seek to header partition checksum location and update it.
+        let hdr_csum = h.current_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - header start"))?
+            .checked_add(88)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - checksum offset"))?;
+        let _ = file.seek(SeekFrom::Start(hdr_csum))?;
         file.write_u32::<LittleEndian>(parts_checksum)?;
 
         Ok(())
     }
 }
 
+/// Partition type, with optional description.
 #[derive(Debug, Eq, PartialEq)]
 pub struct PartitionType {
-    pub os: String,
     pub guid: String,
     pub desc: String,
+    pub os: String,
 }
 
 impl fmt::Display for Partition {
@@ -100,7 +113,7 @@ impl fmt::Display for Partition {
 }
 
 fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
-    trace!("Reading partition name from {:?}", rdr);
+    trace!("Reading partition name");
     let mut namebytes: Vec<u16> = Vec::new();
     for _ in 0..36 {
         let b = rdr.read_u16::<LittleEndian>()?;
@@ -133,34 +146,51 @@ fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
     }
 }
 
-/// Read a gpt partition table.
+/// Read a GPT partition table.
 ///
-/// let header = read_header("/dev/sda").unwrap();
-/// let partitions: Vec<Partition> = read_partitions("/dev/sda", &mut header);
+/// ## Example
 ///
-pub fn read_partitions(path: &str, header: &Header) -> Result<Vec<Partition>> {
-    debug!("reading partitions from file: {}", path);
+/// ```rust,no_run
+/// use gpt::{header, disk, partition};
+/// use std::path::Path;
+///
+/// let lb_size = disk::DEFAULT_SECTOR_SIZE;
+/// let diskpath = Path::new("/dev/sda");
+/// let mut hdr = header::read_header(diskpath, lb_size).unwrap();
+/// let partitions = partition::read_partitions(diskpath, &hdr, lb_size).unwrap();
+/// println!("{:#?}", partitions);
+/// ```
+pub fn read_partitions(
+    path: &Path,
+    header: &Header,
+    lb_size: disk::LogicalBlockSize,
+) -> Result<Vec<Partition>> {
+    debug!("reading partitions from file: {}", path.display());
     let mut file = File::open(path)?;
-    file_read_partitions(&mut file, header, disk::DEFAULT_SECTOR_SIZE.into())
+    file_read_partitions(&mut file, header, lb_size)
 }
 
 /// Read a GPT partition table from an open `File` object.
 pub(crate) fn file_read_partitions(
     file: &mut File,
     header: &Header,
-    lb_size: u64,
+    lb_size: disk::LogicalBlockSize,
 ) -> Result<Vec<Partition>> {
-    trace!("Seeking to {}", lb_size * header.part_start);
-    let _ = file.seek(SeekFrom::Start(lb_size * header.part_start));
+    let pstart = header
+        .part_start
+        .checked_mul(lb_size.into())
+        .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
+    trace!("seeking to partitions start: {:#x}", pstart);
+    let _ = file.seek(SeekFrom::Start(pstart))?;
     let mut parts: Vec<Partition> = Vec::new();
 
-    debug!("Reading partitions");
+    debug!("scanning partitions");
     for _ in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
         let mut nameraw: [u8; 72] = [0; 72];
 
-        let _ = file.read_exact(&mut bytes);
-        let _ = file.read_exact(&mut nameraw);
+        file.read_exact(&mut bytes)?;
+        file.read_exact(&mut nameraw)?;
         let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
 
         let mut reader = Cursor::new(&bytes[..]);
@@ -179,14 +209,14 @@ pub(crate) fn file_read_partitions(
         }
     }
 
-    trace!("Seeking to {}", lb_size * header.part_start);
-    let _ = file.seek(SeekFrom::Start(lb_size * header.part_start));
+    trace!("seeking to partitions start: {:#x}", pstart);
+    let _ = file.seek(SeekFrom::Start(pstart))?;
     let mut table: [u8; 16384] = [0; 16384];
     let _ = file.read_exact(&mut table);
 
-    debug!("Checking checksum");
+    debug!("checking partition table checksum");
     if crc32::checksum_ieee(&table) != header.crc32_parts {
-        return Err(Error::new(ErrorKind::Other, "Invalid partition table CRC."));
+        return Err(Error::new(ErrorKind::Other, "invalid partition table CRC"));
     }
 
     Ok(parts)

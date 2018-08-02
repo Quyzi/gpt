@@ -96,7 +96,7 @@ impl GptConfig {
             .open(diskpath)?;
         let h1 = header::read_primary_header(&mut file, self.lb_size)?;
         let h2 = header::read_backup_header(&mut file, self.lb_size)?;
-        let table = partition::file_read_partitions(&mut file, &h1, self.lb_size.into())?;
+        let table = partition::file_read_partitions(&mut file, &h1, self.lb_size)?;
         let disk = GptDisk {
             config: self,
             file,
