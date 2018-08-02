@@ -94,8 +94,8 @@ impl GptConfig {
             .write(self.writable)
             .read(true)
             .open(diskpath)?;
-        let h1 = header::read_primary_header(&mut file, self.lb_size.into())?;
-        let h2 = header::read_backup_header(&mut file, self.lb_size.into())?;
+        let h1 = header::read_primary_header(&mut file, self.lb_size)?;
+        let h2 = header::read_backup_header(&mut file, self.lb_size)?;
         let table = partition::file_read_partitions(&mut file, &h1, self.lb_size.into())?;
         let disk = GptDisk {
             config: self,
@@ -175,7 +175,7 @@ impl GptDisk {
     /// No changes are recorded to disk until `write()` is called.
     pub fn update_partitions(&mut self, pp: Vec<partition::Partition>) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
-        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size.into())?;
+        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         let h1 = header::Header::compute_new(true, &pp, self.guid, bak)?;
         let h2 = header::Header::compute_new(false, &pp, self.guid, bak)?;
         self.primary_header = Some(h1);
@@ -200,11 +200,11 @@ impl GptDisk {
         if !self.config.initialized {
             return Err(io::Error::new(io::ErrorKind::Other, "disk not initialized"));
         }
-        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size.into())?;
+        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         let h2 = header::Header::compute_new(true, &[], self.guid, bak)?;
         let h1 = header::Header::compute_new(true, &[], self.guid, bak)?;
-        h2.write_backup(&mut self.file)?;
-        h1.write_primary(&mut self.file)?;
+        h2.write_backup(&mut self.file, self.config.lb_size)?;
+        h1.write_primary(&mut self.file, self.config.lb_size)?;
         self.file.flush()?;
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
