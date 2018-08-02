@@ -45,8 +45,8 @@ pub struct GptConfig {
 }
 
 impl GptConfig {
-    // TODO(lucab): complete support for non-default sector size,
-    // skipping backup header, etc, then expose all config knobs here.
+    // TODO(lucab): complete support for skipping backup
+    // header, etc, then expose all config knobs here.
 
     /// Create a new default configuration.
     pub fn new() -> Self {
@@ -68,6 +68,13 @@ impl GptConfig {
         cfg
     }
 
+    /// Size of logical blocks (sectors) for this disk.
+    pub fn logical_block_size(self, lb_size: disk::LogicalBlockSize) -> Self {
+        let mut cfg = self;
+        cfg.lb_size = lb_size;
+        cfg
+    }
+
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
     pub fn open(self, diskpath: &path::Path) -> io::Result<GptDisk> {
@@ -78,7 +85,7 @@ impl GptConfig {
                 .read(true)
                 .open(diskpath)?;
             let empty = GptDisk {
-                config: GptConfig::new().initialized(false),
+                config: self,
                 file,
                 guid: uuid::Uuid::new_v4(),
                 path: diskpath.to_path_buf(),
@@ -153,6 +160,11 @@ impl GptDisk {
         &self.guid
     }
 
+    /// Retrieve disk logical block size.
+    pub fn logical_block_size(&self) -> &disk::LogicalBlockSize {
+        &self.config.lb_size
+    }
+
     /// Update disk UUID.
     ///
     /// If no UUID is specified, a new random one is generated.
@@ -185,7 +197,7 @@ impl GptDisk {
         Ok(self)
     }
 
-    /// Persist changes to disk, consuming this disk object.
+    /// Persist state to disk, consuming this disk object.
     ///
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
@@ -203,6 +215,7 @@ impl GptDisk {
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         let h2 = header::Header::compute_new(true, &[], self.guid, bak)?;
         let h1 = header::Header::compute_new(true, &[], self.guid, bak)?;
+        // TODO(lucab): write partition entries to disk.
         h2.write_backup(&mut self.file, self.config.lb_size)?;
         h1.write_primary(&mut self.file, self.config.lb_size)?;
         self.file.flush()?;
