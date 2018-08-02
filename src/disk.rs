@@ -29,7 +29,7 @@ impl Into<u64> for LogicalBlockSize {
 /// ## Example
 ///
 /// ```rust,no_run
-/// let diskpath = std::path::Path::new("/dev/sda");
+/// let diskpath = std::path::Path::new("/dev/sdz");
 /// let gpt_disk = gpt::disk::read_disk(diskpath).unwrap();
 /// println!("{:#?}", gpt_disk);
 /// ```

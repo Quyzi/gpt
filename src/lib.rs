@@ -7,7 +7,7 @@
 //! extern crate gpt;
 //!
 //! fn inspect_disk() {
-//!     let diskpath = std::path::Path::new("/dev/sda");
+//!     let diskpath = std::path::Path::new("/dev/sdz");
 //!     let cfg = gpt::GptConfig::new().writable(false);
 //!
 //!     let disk = cfg.open(diskpath).expect("failed to open disk");

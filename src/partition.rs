@@ -155,8 +155,8 @@ fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
 /// use std::path::Path;
 ///
 /// let lb_size = disk::DEFAULT_SECTOR_SIZE;
-/// let diskpath = Path::new("/dev/sda");
-/// let mut hdr = header::read_header(diskpath, lb_size).unwrap();
+/// let diskpath = Path::new("/dev/sdz");
+/// let hdr = header::read_header(diskpath, lb_size).unwrap();
 /// let partitions = partition::read_partitions(diskpath, &hdr, lb_size).unwrap();
 /// println!("{:#?}", partitions);
 /// ```

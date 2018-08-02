@@ -197,10 +197,16 @@ impl fmt::Display for Header {
 
 /// Read a GPT header from a given path.
 ///
+/// ## Example
+///
+/// ```rust,no_run
 /// use gpt::header::read_header;
 ///
-/// let h = read_header("/dev/sda")?;
+/// let lb_size = gpt::disk::DEFAULT_SECTOR_SIZE;
+/// let diskpath = std::path::Path::new("/dev/sdz");
 ///
+/// let h = read_header(diskpath, lb_size).unwrap();
+/// ```
 pub fn read_header(path: &Path, sector_size: disk::LogicalBlockSize) -> Result<Header> {
     let mut file = File::open(path)?;
     read_primary_header(&mut file, sector_size)
