@@ -138,13 +138,19 @@ pub struct GptDisk {
 
 impl GptDisk {
     /// Retrieve primary header, if any.
-    pub fn primary_header(&self) -> &Option<header::Header> {
-        &self.primary_header
+    pub fn primary_header(&self) -> Option<&header::Header> {
+        match self.primary_header {
+            Some(ref h1) => Some(h1),
+            None => None,
+        }
     }
 
     /// Retrieve backup header, if any.
-    pub fn backup_header(&self) -> &Option<header::Header> {
-        &self.primary_header
+    pub fn backup_header(&self) -> Option<&header::Header> {
+        match self.backup_header {
+            Some(ref h2) => Some(h2),
+            None => None,
+        }
     }
 
     /// Retrieve partition entries.
