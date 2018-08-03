@@ -54,25 +54,22 @@ impl GptConfig {
     }
 
     /// Whether to open a GPT partition table in writable mode.
-    pub fn writable(self, writable: bool) -> Self {
-        let mut cfg = self;
-        cfg.writable = writable;
-        cfg
+    pub fn writable(mut self, writable: bool) -> Self {
+        self.writable = writable;
+        self
     }
 
     /// Whether to assume an initialized GPT disk and read its
     /// partition table on open.
-    pub fn initialized(self, initialized: bool) -> Self {
-        let mut cfg = self;
-        cfg.initialized = initialized;
-        cfg
+    pub fn initialized(mut self, initialized: bool) -> Self {
+        self.initialized = initialized;
+        self
     }
 
     /// Size of logical blocks (sectors) for this disk.
-    pub fn logical_block_size(self, lb_size: disk::LogicalBlockSize) -> Self {
-        let mut cfg = self;
-        cfg.lb_size = lb_size;
-        cfg
+    pub fn logical_block_size(mut self, lb_size: disk::LogicalBlockSize) -> Self {
+        self.lb_size = lb_size;
+        self
     }
 
     /// Open the GPT disk at the given path and inspect it according
