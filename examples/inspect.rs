@@ -18,7 +18,7 @@ fn main() {
 
 fn run() -> io::Result<()> {
     // First parameter is target disk image (optional, default: fixtures sample)
-    let sample = "tests/test_gpt".to_string();
+    let sample = "tests/fixtures/gpt-linux-disk-01.img".to_string();
     let input = std::env::args().nth(1).unwrap_or(sample);
 
     // Open disk image.
