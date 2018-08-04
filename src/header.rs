@@ -5,14 +5,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
-extern crate byteorder;
 extern crate crc;
 extern crate itertools;
 
 use self::itertools::Itertools;
 
-use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::{crc32, Hasher32};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use disk;
 use partition;
 use uuid;
@@ -93,17 +92,7 @@ impl Header {
         file: &mut File,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<usize> {
-        // Write Protective-MBR
-        let mbr = protective_mbr(file, lb_size)?;
-        let _ = file.seek(SeekFrom::Start(448))?;
-        let mut bytes_written = file.write(&mbr)?;
-
-        // Write signature bytes
-        let _ = file.seek(SeekFrom::Start(510))?;
-        let sig_len = file.write(&[0x55, 0xAA])?;
-        bytes_written = bytes_written
-            .checked_add(sig_len)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - signature"))?;
+        let mut bytes_written: usize = 0;
 
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, lb_size)?;
@@ -319,42 +308,6 @@ pub(crate) fn partentry_checksum(file: &mut File, lb_size: disk::LogicalBlockSiz
     digest.write(&buff);
 
     Ok(digest.sum32())
-}
-
-fn protective_mbr(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<Vec<u8>> {
-    let lb_size: u64 = sector_size.into();
-    let m = f.metadata()?;
-    let len = m.len() / lb_size;
-    let mut buff: Vec<u8> = Vec::new();
-
-    //Boot Indicator. Must set to 00 so the partition can't be booted
-    buff.write_u8(0)?;
-    buff.write_u8(0)?; // starting head
-    buff.write_u8(0)?; // starting sector
-    buff.write_u8(0)?; // starting cylinder
-    buff.write_u8(0xEE)?; // System ID.  Must be EE for GPT
-                          //Ending Head. Same as Ending LBA of the single partition
-    if len > 255 {
-        buff.write_u8(0xFF)?;
-        //Ending Sector. Same as Ending LBA of the single partition
-        buff.write_u8(0xFF)?;
-        //Ending Cylinder. Same as Ending LBA of the single partition
-        buff.write_u8(0xFF)?;
-    } else {
-        buff.write_u8(len as u8)?;
-        buff.write_u8(len as u8)?;
-        buff.write_u8(len as u8)?;
-    }
-    //Starting LBA. Always set to 1.
-    buff.write_u32::<LittleEndian>(1)?;
-    //Size in LBA. The size of the partition. Set to FF FF FF FF if too large
-    if len as u32 > u32::max_value() {
-        buff.write_u32::<LittleEndian>(u32::max_value())?;
-    } else {
-        buff.write_u32::<LittleEndian>(len as u32)?;
-    }
-
-    Ok(buff)
 }
 
 /// A helper function to create a new header and write it to disk.
