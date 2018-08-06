@@ -73,7 +73,7 @@ impl Partition {
         file.seek(SeekFrom::Start(pstart))?;
         file.write_all(&self.as_bytes()?)?;
 
-        let parts_checksum = partentry_checksum(&mut file, lb_size)?;
+        let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
         // Seek to header partition checksum location and update it.
         let hdr_csum = h.current_lba
             .checked_mul(lb_size.into())
@@ -184,39 +184,46 @@ pub(crate) fn file_read_partitions(
     let _ = file.seek(SeekFrom::Start(pstart))?;
     let mut parts: Vec<Partition> = Vec::new();
 
-    debug!("scanning partitions");
+    trace!("scanning {} partitions", header.num_parts);
     for _ in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
         let mut nameraw: [u8; 72] = [0; 72];
 
         file.read_exact(&mut bytes)?;
         file.read_exact(&mut nameraw)?;
-        let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
 
         let mut reader = Cursor::new(&bytes[..]);
+        let type_guid = parse_uuid(&mut reader)?;
+        let part_guid = parse_uuid(&mut reader)?;
 
+        if part_guid.simple().to_string() == "00000000000000000000000000000000" {
+            continue;
+        }
+
+        let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
         let p: Partition = Partition {
-            part_type_guid: parse_parttype_guid(parse_uuid(&mut reader)?),
-            part_guid: parse_uuid(&mut reader)?,
+            part_type_guid: parse_parttype_guid(type_guid),
+            part_guid,
             first_lba: reader.read_u64::<LittleEndian>()?,
             last_lba: reader.read_u64::<LittleEndian>()?,
             flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
         };
 
-        if p.part_guid.simple().to_string() != "00000000000000000000000000000000" {
-            parts.push(p);
-        }
+        parts.push(p);
     }
 
-    trace!("seeking to partitions start: {:#x}", pstart);
+    debug!("checking partition table CRC");
     let _ = file.seek(SeekFrom::Start(pstart))?;
-    let mut table: [u8; 16384] = [0; 16384];
-    let _ = file.read_exact(&mut table);
+    let pt_len = u64::from(header.num_parts)
+        .checked_mul(header.part_size.into())
+        .ok_or_else(|| Error::new(ErrorKind::Other, "partitions - size"))?;
+    let mut table = vec![0; pt_len as usize];
+    file.read_exact(&mut table)?;
 
-    debug!("checking partition table checksum");
-    if crc32::checksum_ieee(&table) != header.crc32_parts {
-        return Err(Error::new(ErrorKind::Other, "invalid partition table CRC"));
+    let comp_crc = crc32::checksum_ieee(&table);
+    if comp_crc != header.crc32_parts {
+        return Err(Error::new(ErrorKind::Other, "partition table CRC mismatch"));
     }
 
     Ok(parts)
