@@ -19,6 +19,7 @@
 
 #[macro_use]
 extern crate bitflags;
+extern crate byteorder;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -27,6 +28,7 @@ extern crate uuid;
 
 pub mod disk;
 pub mod header;
+pub mod mbr;
 pub mod partition;
 mod partition_types;
 
@@ -139,18 +141,12 @@ pub struct GptDisk {
 impl GptDisk {
     /// Retrieve primary header, if any.
     pub fn primary_header(&self) -> Option<&header::Header> {
-        match self.primary_header {
-            Some(ref h1) => Some(h1),
-            None => None,
-        }
+        self.primary_header.as_ref()
     }
 
     /// Retrieve backup header, if any.
     pub fn backup_header(&self) -> Option<&header::Header> {
-        match self.backup_header {
-            Some(ref h2) => Some(h2),
-            None => None,
-        }
+        self.backup_header.as_ref()
     }
 
     /// Retrieve partition entries.

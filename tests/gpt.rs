@@ -31,9 +31,7 @@ fn test_gptdisk_linux_01() {
     let diskpath = path::Path::new("tests/fixtures/gpt-linux-disk-01.img");
     let lb_size = disk::LogicalBlockSize::Lb512;
 
-    let disk = gpt::GptConfig::new()
-        .open(diskpath)
-        .unwrap();
+    let disk = gpt::GptConfig::new().open(diskpath).unwrap();
     assert_eq!(*disk.logical_block_size(), lb_size);
     assert!(disk.primary_header().is_some());
     assert!(disk.backup_header().is_some());
@@ -46,7 +44,6 @@ fn test_gptdisk_linux_01() {
     let h2 = disk.backup_header().unwrap();
     assert_eq!(h2.current_lba, 95);
     assert_eq!(h2.backup_lba, 1);
-
 
     let p1 = &disk.partitions()[0];
     assert_eq!(p1.name, "primary");
