@@ -87,15 +87,11 @@ impl Header {
 
     /// Write the header to a location.  With a crc32 set to zero
     /// this will set the crc32 after writing the Header out
-    pub(crate) fn write_primary(
-        &self,
-        file: &mut File,
-        lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    pub fn write_primary(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         let mut bytes_written: usize = 0;
 
         // Build up byte array in memory
-        let parts_checksum = partentry_checksum(file, lb_size)?;
+        let parts_checksum = partentry_checksum(file, self, lb_size)?;
         let bytes = self.as_bytes(None, Some(parts_checksum))?;
 
         // Calculate the crc32 from the byte array
@@ -115,11 +111,7 @@ impl Header {
     }
 
     // TODO: implement writing backup header too.
-    pub(crate) fn write_backup(
-        &self,
-        file: &mut File,
-        lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    pub fn write_backup(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         let start = self.backup_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
@@ -296,17 +288,27 @@ fn calculate_crc32(b: &[u8]) -> Result<u32> {
     Ok(digest.sum32())
 }
 
-pub(crate) fn partentry_checksum(file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<u32> {
-    // Seek to LBA 2
-    let start = 2u64.checked_mul(lb_size.into())
-        .ok_or_else(|| Error::new(ErrorKind::Other, "checksum overflow - offset"))?;
+pub(crate) fn partentry_checksum(
+    file: &mut File,
+    hdr: &Header,
+    lb_size: disk::LogicalBlockSize,
+) -> Result<u32> {
+    // Seek to start of partition table.
+    let start = hdr.part_start
+        .checked_mul(lb_size.into())
+        .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - partition table start"))?;
     let _ = file.seek(SeekFrom::Start(start))?;
-    let mut buff: [u8; 65536] = [0; 65536];
-    file.read_exact(&mut buff)?;
 
+    // Read partition table.
+    let pt_len = u64::from(hdr.num_parts)
+        .checked_mul(hdr.part_size.into())
+        .ok_or_else(|| Error::new(ErrorKind::Other, "partition table - size"))?;
+    let mut buf = vec![0; pt_len as usize];
+    file.read_exact(&mut buf)?;
+
+    // Compute CRC32 over all table bits.
     let mut digest = crc32::Digest::new(crc32::IEEE);
-    digest.write(&buff);
-
+    digest.write(&buf);
     Ok(digest.sum32())
 }
 
