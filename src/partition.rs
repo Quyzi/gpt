@@ -17,7 +17,6 @@ extern crate itertools;
 
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use self::crc::crc32;
-use self::itertools::Itertools;
 use partition_types::PART_HASHMAP;
 use uuid;
 
@@ -43,23 +42,42 @@ pub struct Partition {
     pub last_lba: u64,
     /// Partition flags.
     pub flags: u64,
-    /// Name of the partition (36 UTF-16LE characters).
+    /// Partition name.
     pub name: String,
 }
 
 impl Partition {
-    fn as_bytes(&self) -> Result<Vec<u8>> {
-        let mut buff: Vec<u8> = Vec::new();
+    fn as_bytes(&self, entry_size: u16) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(entry_size as usize);
 
-        buff.write_all(self.part_type_guid.guid.as_bytes())?;
-        buff.write_all(self.part_guid.as_bytes())?;
-        buff.write_u64::<LittleEndian>(self.first_lba)?;
-        buff.write_u64::<LittleEndian>(self.last_lba)?;
-        buff.write_u64::<LittleEndian>(self.flags)?;
-        buff.write_all(self.name.as_bytes())?;
+        // Type GUID.
+        let tyguid = self.part_type_guid.guid.as_fields();
+        buf.write_u32::<LittleEndian>(tyguid.0)?;
+        buf.write_u16::<LittleEndian>(tyguid.1)?;
+        buf.write_u16::<LittleEndian>(tyguid.2)?;
+        buf.write_all(tyguid.3)?;
 
-        trace!("partition buffer: {:02x}", buff.iter().format(","));
-        Ok(buff)
+        // Partition GUID.
+        let pguid = self.part_guid.as_fields();
+        buf.write_u32::<LittleEndian>(pguid.0)?;
+        buf.write_u16::<LittleEndian>(pguid.1)?;
+        buf.write_u16::<LittleEndian>(pguid.2)?;
+        buf.write_all(pguid.3)?;
+
+        // LBAs and flags.
+        buf.write_u64::<LittleEndian>(self.first_lba)?;
+        buf.write_u64::<LittleEndian>(self.last_lba)?;
+        buf.write_u64::<LittleEndian>(self.flags)?;
+
+        // Partition name as UTF16-LE.
+        for utf16_char in self.name.encode_utf16().take(36) {
+            buf.write_u16::<LittleEndian>(utf16_char)?;
+        }
+
+        // Resize buffer to exact entry size.
+        buf.resize(entry_size as usize, 0x00);
+
+        Ok(buf)
     }
 
     /// Write the partition entry to the partitions area and update crc32 for the Header.
@@ -71,7 +89,7 @@ impl Partition {
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
         trace!("seeking to partition start: {:#x}", pstart);
         file.seek(SeekFrom::Start(pstart))?;
-        file.write_all(&self.as_bytes()?)?;
+        file.write_all(&self.as_bytes(128)?)?;
 
         let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
         // Seek to header partition checksum location and update it.
@@ -90,9 +108,9 @@ impl Partition {
 /// Partition type, with optional description.
 #[derive(Debug, Eq, PartialEq)]
 pub struct PartitionType {
-    pub guid: String,
-    pub desc: String,
+    pub guid: uuid::Uuid,
     pub os: String,
+    pub description: String,
 }
 
 impl fmt::Display for Partition {
@@ -104,7 +122,7 @@ impl fmt::Display for Partition {
             self.name,
             self.part_guid,
             self.part_type_guid.guid,
-            self.part_type_guid.desc,
+            self.part_type_guid.description,
             self.first_lba,
             self.last_lba,
             self.flags
@@ -126,21 +144,20 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
 }
 
 fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
-    debug!("Parsing partition guid");
     let s = u.hyphenated().to_string().to_uppercase();
-    debug!("Looking up partition type");
+    debug!("looking up partition type, GUID {}", s);
     match PART_HASHMAP.get(&s) {
         Some(part_id) => PartitionType {
-            guid: s,
+            guid: u,
             os: part_id.0.into(),
-            desc: part_id.1.into(),
+            description: part_id.1.into(),
         },
         None => {
             error!("Unknown partition type: {}", s);
             PartitionType {
-                guid: s,
+                guid: u,
                 os: "".to_string(),
-                desc: "".to_string(),
+                description: "".to_string(),
             }
         }
     }
