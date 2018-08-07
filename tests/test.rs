@@ -34,9 +34,9 @@ fn test_read_header() {
 
     let expected_partition = Partition {
         part_type_guid: PartitionType {
+            guid: uuid::Uuid::parse_str("0FC63DAF-8483-4772-8E79-3D69D8477DE4").unwrap(),
             os: "Linux".to_string(),
-            guid: "0FC63DAF-8483-4772-8E79-3D69D8477DE4".to_string(),
-            desc: "Linux Filesystem Data".to_string(),
+            description: "Linux Filesystem Data".to_string(),
         },
         part_guid: uuid::Uuid::from_str("6fcc8240-3985-4840-901f-a05e7fd9b69d").unwrap(),
         first_lba: 34,
@@ -80,9 +80,9 @@ fn test_write_header() {
 
     let p = Partition {
         part_type_guid: PartitionType {
+            guid: uuid::Uuid::parse_str("0FC63DAF-8483-4772-8E79-3D69D8477DE4").unwrap(),
             os: "Linux".to_string(),
-            guid: "0FC63DAF-8483-4772-8E79-3D69D8477DE4".to_string(),
-            desc: "Linux Filesystem Data".to_string(),
+            description: "Linux Filesystem Data".to_string(),
         },
         part_guid: uuid::Uuid::new_v4(),
         first_lba: 36,

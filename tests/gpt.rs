@@ -47,5 +47,5 @@ fn test_gptdisk_linux_01() {
 
     let p1 = &disk.partitions()[0];
     assert_eq!(p1.name, "primary");
-    assert_eq!(p1.part_type_guid.desc, "Linux Filesystem Data");
+    assert_eq!(p1.part_type_guid.description, "Linux Filesystem Data");
 }
