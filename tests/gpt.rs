@@ -31,21 +31,27 @@ fn test_gptdisk_linux_01() {
     let diskpath = path::Path::new("tests/fixtures/gpt-linux-disk-01.img");
     let lb_size = disk::LogicalBlockSize::Lb512;
 
-    let disk = gpt::GptConfig::new().open(diskpath).unwrap();
-    assert_eq!(*disk.logical_block_size(), lb_size);
-    assert!(disk.primary_header().is_some());
-    assert!(disk.backup_header().is_some());
-    assert_eq!(disk.partitions().len(), 1);
+    let gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
+    assert_eq!(*gdisk.logical_block_size(), lb_size);
+    assert!(gdisk.primary_header().is_some());
+    assert!(gdisk.backup_header().is_some());
+    assert_eq!(gdisk.partitions().len(), 1);
 
-    let h1 = disk.primary_header().unwrap();
+    let h1 = gdisk.primary_header().unwrap();
     assert_eq!(h1.current_lba, 1);
     assert_eq!(h1.backup_lba, 95);
 
-    let h2 = disk.backup_header().unwrap();
+    let h2 = gdisk.backup_header().unwrap();
     assert_eq!(h2.current_lba, 95);
     assert_eq!(h2.backup_lba, 1);
 
-    let p1 = &disk.partitions()[0];
+    let p1 = &gdisk.partitions()[0];
     assert_eq!(p1.name, "primary");
     assert_eq!(p1.part_type_guid.description, "Linux Filesystem Data");
+    let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
+    assert_eq!(p1_start, 0x22 * 512);
+    let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
+    assert_eq!(p1_len, (0x3E - 0x22)* 512);
+
+
 }

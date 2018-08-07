@@ -30,7 +30,7 @@ bitflags! {
 }
 
 /// A partition entry in a GPT partition table.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Partition {
     /// GUID of the partition type.
     pub part_type_guid: PartitionType,
@@ -47,6 +47,23 @@ pub struct Partition {
 }
 
 impl Partition {
+    /// Create a partition entry of type "unused", whose bytes are all 0s.
+    pub fn zero() -> Self {
+        Self {
+            part_type_guid: PartitionType {
+                guid: uuid::Uuid::nil(),
+                os: "".to_string(),
+                description: "".to_string(),
+            },
+            part_guid: uuid::Uuid::nil(),
+            first_lba: 0,
+            last_lba: 0,
+            flags: 0,
+            name: "".to_string(),
+        }
+    }
+
+    /// Serialize this partition entry to its bytes representation.
     fn as_bytes(&self, entry_size: u16) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(entry_size as usize);
 
@@ -103,10 +120,28 @@ impl Partition {
 
         Ok(())
     }
+
+    /// Return the length (in bytes) of this partition.
+    pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
+        let len = self.last_lba
+            .checked_sub(self.first_lba)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - bytes"))?;
+        Ok(len)
+    }
+
+    /// Return the starting offset (in bytes) of this partition.
+    pub fn bytes_start(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
+        let len = self.first_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition start overflow - bytes"))?;
+        Ok(len)
+    }
 }
 
 /// Partition type, with optional description.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartitionType {
     pub guid: uuid::Uuid,
     pub os: String,
@@ -244,4 +279,96 @@ pub(crate) fn file_read_partitions(
     }
 
     Ok(parts)
+}
+
+#[cfg(test)]
+mod tests {
+    use disk;
+    use partition;
+
+    #[test]
+    fn test_zero_part() {
+        let p0 = partition::Partition::zero();
+
+        let b128 = p0.as_bytes(128).unwrap();
+        assert_eq!(b128.len(), 128);
+        assert_eq!(b128, vec![0u8; 128]);
+
+        let b256 = p0.as_bytes(256).unwrap();
+        assert_eq!(b256.len(), 256);
+        assert_eq!(b256, vec![0u8; 256]);
+    }
+
+    #[test]
+    fn test_part_bytes_len() {
+        {
+            // Zero.
+            let p0 = partition::Partition::zero();
+            let b512len = p0.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
+            let b4096len = p0.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
+
+            assert_eq!(b512len, 0);
+            assert_eq!(b4096len, 0);
+        }
+
+        {
+            // Negative length.
+            let mut p1 = partition::Partition::zero();
+            p1.first_lba = p1.last_lba + 1;
+            p1.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
+            p1.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
+        }
+
+        {
+            // Overflowing u64 length.
+            let mut p2 = partition::Partition::zero();
+            p2.last_lba = <u64>::max_value();
+            p2.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
+            p2.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
+        }
+
+        {
+            // Positive value.
+            let mut p3 = partition::Partition::zero();
+            p3.first_lba = 2;
+            p3.last_lba = 4;
+            let b512len = p3.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
+            let b4096len = p3.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
+
+            assert_eq!(b512len, 2 * 512);
+            assert_eq!(b4096len, 2 * 4096);
+        }
+    }
+
+    #[test]
+    fn test_part_bytes_start() {
+        {
+            // Zero.
+            let p0 = partition::Partition::zero();
+            let b512len = p0.bytes_start(disk::LogicalBlockSize::Lb512).unwrap();
+            let b4096len = p0.bytes_start(disk::LogicalBlockSize::Lb4096).unwrap();
+
+            assert_eq!(b512len, 0);
+            assert_eq!(b4096len, 0);
+        }
+
+        {
+            // Overflowing u64 start.
+            let mut p1 = partition::Partition::zero();
+            p1.first_lba = <u64>::max_value();
+            p1.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
+            p1.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
+        }
+
+        {
+            // Positive value.
+            let mut p2 = partition::Partition::zero();
+            p2.first_lba = 2;
+            let b512start = p2.bytes_start(disk::LogicalBlockSize::Lb512).unwrap();
+            let b4096start = p2.bytes_start(disk::LogicalBlockSize::Lb4096).unwrap();
+
+            assert_eq!(b512start, 2 * 512);
+            assert_eq!(b4096start, 2 * 4096);
+        }
+    }
 }
