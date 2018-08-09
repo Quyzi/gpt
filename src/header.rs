@@ -1,20 +1,15 @@
 //! GPT-header object and helper functions.
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crc::{crc32, Hasher32};
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
+use uuid;
 
-extern crate crc;
-extern crate itertools;
-
-use self::itertools::Itertools;
-
-use self::crc::{crc32, Hasher32};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use disk;
 use partition;
-use uuid;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
@@ -164,7 +159,6 @@ impl Header {
             Some(c) => buff.write_u32::<LittleEndian>(c)?,
             None => buff.write_u32::<LittleEndian>(0)?,
         };
-        trace!("Buffer: {:02x}", buff.iter().format(","));
         Ok(buff)
     }
 }

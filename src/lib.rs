@@ -20,20 +20,21 @@
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
+extern crate crc;
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
 extern crate log;
 extern crate uuid;
 
+use std::io::Write;
+use std::{fs, io, path};
+
 pub mod disk;
 pub mod header;
 pub mod mbr;
 pub mod partition;
 mod partition_types;
-
-use std::io::Write;
-use std::{fs, io, path};
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
