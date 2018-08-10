@@ -1,22 +1,17 @@
 //! GPT-header object and helper functions.
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crc::{crc32, Hasher32};
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
-
-extern crate crc;
-extern crate itertools;
-
-use self::itertools::Itertools;
-
-use self::crc::{crc32, Hasher32};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use disk;
-use partition;
 use uuid;
 
-#[derive(Debug, Eq, PartialEq)]
+use disk;
+use partition;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
     /// EFI PART
     pub signature: String, // Offset  0. "EFI PART", 45h 46h 49h 20h 50h 41h 52h 54h
@@ -85,38 +80,60 @@ impl Header {
         Ok(hdr)
     }
 
-    /// Write the header to a location.  With a crc32 set to zero
-    /// this will set the crc32 after writing the Header out
+    /// Write the primary header.
+    ///
+    /// With a CRC32 set to zero this will set the crc32 after
+    /// writing the header out.
     pub fn write_primary(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
-        let mut bytes_written: usize = 0;
+        // This is the primary header. It must start before the backup one.
+        if self.current_lba >= self.backup_lba {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "primary header does not start before backup one",
+            ));
+        }
+        self.file_write_header(file, self.current_lba, lb_size)
+    }
 
+    /// Write the backup header.
+    ///
+    /// With a CRC32 set to zero this will set the crc32 after
+    /// writing the header out.
+    pub fn write_backup(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
+        // This is the backup header. It must start after the primary one.
+        if self.current_lba <= self.backup_lba {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "backup header does not start after primary one",
+            ));
+        }
+        self.file_write_header(file, self.current_lba, lb_size)
+    }
+
+    /// Write an header to an arbitrary LBA.
+    ///
+    /// With a CRC32 set to zero this will set the crc32 after
+    /// writing the header out.
+    fn file_write_header(
+        &self,
+        file: &mut File,
+        lba: u64,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<usize> {
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, self, lb_size)?;
         let bytes = self.as_bytes(None, Some(parts_checksum))?;
 
-        // Calculate the crc32 from the byte array
+        // Calculate the CRC32 from the byte array
         let checksum = calculate_crc32(&bytes)?;
 
         // Write it to disk in 1 shot
-        let start = self.current_lba
-            .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - offset"))?;
+        let start = lba.checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
         let _ = file.seek(SeekFrom::Start(start))?;
-        let csum_len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
-        bytes_written = bytes_written
-            .checked_add(csum_len)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "primary header overflow - checksum"))?;
+        let len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
 
-        Ok(bytes_written)
-    }
-
-    // TODO: implement writing backup header too.
-    pub fn write_backup(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
-        let start = self.backup_lba
-            .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
-        let _ = file.seek(SeekFrom::Start(start))?;
-        Ok(0)
+        Ok(len)
     }
 
     fn as_bytes(&self, checksum: Option<u32>, parts_checksum: Option<u32>) -> Result<Vec<u8>> {
@@ -142,7 +159,6 @@ impl Header {
             Some(c) => buff.write_u32::<LittleEndian>(c)?,
             None => buff.write_u32::<LittleEndian>(0)?,
         };
-        trace!("Buffer: {:02x}", buff.iter().format(","));
         Ok(buff)
     }
 }
@@ -256,7 +272,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
         *crc_byte = 0;
     }
     let c = crc32::checksum_ieee(&hdr_crc);
-    trace!("hdr_crc: {:?}, h.crc32: {:?}", c, h.crc32);
+    trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
     if crc32::checksum_ieee(&hdr_crc) == h.crc32 {
         Ok(h)
     } else {
@@ -265,7 +281,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
 }
 
 pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
-    trace!("Querying file size to find backup header location");
+    trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
     let m = f.metadata()?;
     if m.len() <= lb_size {
@@ -274,10 +290,15 @@ pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize)
             "disk image too small for backup header",
         ));
     }
-    let backup_location = (m.len().saturating_sub(lb_size)) / lb_size;
-    trace!("Backup location: {:#x}", backup_location);
+    let bak_offset = m.len().saturating_sub(lb_size);
+    let bak_lba = bak_offset / lb_size;
+    trace!(
+        "backup header: LBA={}, bytes offset={}",
+        bak_lba,
+        bak_offset
+    );
 
-    Ok(backup_location)
+    Ok(bak_lba)
 }
 
 fn calculate_crc32(b: &[u8]) -> Result<u32> {

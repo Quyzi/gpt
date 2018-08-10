@@ -3,22 +3,17 @@
 //! This module provides access to low-level primitives
 //! to work with GPT partitions.
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crc::crc32;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
+use uuid;
 
 use disk;
 use header::{parse_uuid, partentry_checksum, Header};
-
-extern crate byteorder;
-extern crate crc;
-extern crate itertools;
-
-use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use self::crc::crc32;
 use partition_types::PART_HASHMAP;
-use uuid;
 
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
