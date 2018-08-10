@@ -11,9 +11,10 @@ use uuid;
 use disk;
 use partition;
 
+/// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
-    /// EFI PART
+    /// GPT header magic signature, hardcoded to "EFI PART".
     pub signature: String, // Offset  0. "EFI PART", 45h 46h 49h 20h 50h 41h 52h 54h
     /// 00 00 01 00
     pub revision: u32, // Offset  8

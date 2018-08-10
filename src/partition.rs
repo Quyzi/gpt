@@ -18,9 +18,12 @@ use partition_types::PART_HASHMAP;
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
     pub struct PartitionAttributes: u64 {
-        const PLATFORM   = 0;
-        const EFI        = 1;
-        const BOOTABLE   = (1 << 1);
+        /// Required platform partition.
+        const PLATFORM   = 1;
+        /// No Block-IO protocol.
+        const EFI        = (1 << 1);
+        /// Legacy-BIOS bootable partition.
+        const BOOTABLE   = (1 << 2);
     }
 }
 
@@ -138,8 +141,11 @@ impl Partition {
 /// Partition type, with optional description.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartitionType {
+    /// Type-GUID for a GPT partition.
     pub guid: uuid::Uuid,
+    /// Optional well-known OS label for this type-GUID.
     pub os: String,
+    /// Optional well-known description label for this type-GUID.
     pub description: String,
 }
 

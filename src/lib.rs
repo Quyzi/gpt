@@ -17,6 +17,8 @@
 //! }
 //! ```
 
+#![deny(missing_docs)]
+
 #[macro_use]
 extern crate bitflags;
 extern crate byteorder;
