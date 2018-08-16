@@ -4,13 +4,13 @@
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io};
 
 /// Protective MBR, as defined by GPT.
 pub struct ProtectiveMBR {
     bootcode: [u8; 440],
-    disk_signature: u32,
+    disk_signature: [u8; 4],
     unknown: u16,
     partitions: [PartRecord; 4],
     signature: [u8; 2],
@@ -26,7 +26,7 @@ impl Default for ProtectiveMBR {
     fn default() -> Self {
         Self {
             bootcode: [0x00; 440],
-            disk_signature: 0,
+            disk_signature: [0x00; 4],
             unknown: 0,
             partitions: [
                 PartRecord::new_protective(None),
@@ -49,7 +49,7 @@ impl ProtectiveMBR {
     pub fn with_lb_size(lb_size: u32) -> Self {
         Self {
             bootcode: [0x00; 440],
-            disk_signature: 0,
+            disk_signature: [0x00; 4],
             unknown: 0,
             partitions: [
                 PartRecord::new_protective(Some(lb_size)),
@@ -66,7 +66,7 @@ impl ProtectiveMBR {
         let mut buf: Vec<u8> = Vec::with_capacity(512);
 
         buf.write_all(&self.bootcode)?;
-        buf.write_u32::<LittleEndian>(self.disk_signature)?;
+        buf.write_all(&self.disk_signature)?;
         buf.write_u16::<LittleEndian>(self.unknown)?;
         for p in &self.partitions {
             let pdata = p.as_bytes()?;
@@ -76,12 +76,41 @@ impl ProtectiveMBR {
         Ok(buf)
     }
 
+    /// Return the 440 bytes of BIOS bootcode.
+    pub fn bootcode(&self) -> &[u8; 440] {
+        &self.bootcode
+    }
+
+    /// Set the 440 bytes of BIOS bootcode.
+    ///
+    /// This only changes the in-memory state, without overwriting
+    /// any on-disk data.
+    pub fn set_bootcode(&mut self, bootcode: [u8; 440]) -> &Self {
+        self.bootcode = bootcode;
+        self
+    }
+
+    /// Return the 4 bytes of MBR disk signature.
+    pub fn disk_signature(&self) -> &[u8; 4] {
+        &self.disk_signature
+    }
+
+    /// Set the 4 bytes of MBR disk signature.
+    ///
+    /// This only changes the in-memory state, without overwriting
+    /// any on-disk data.
+    pub fn set_disk_signature(&mut self, sig: [u8; 4]) -> &Self {
+        self.disk_signature = sig;
+        self
+    }
+
     /// Write a protective MBR to LBA0, overwriting any existing data.
     pub fn overwrite_lba0(&self, file: &mut fs::File) -> io::Result<usize> {
         let cur = file.seek(io::SeekFrom::Current(0))?;
         let _ = file.seek(io::SeekFrom::Start(0))?;
         let data = self.as_bytes()?;
         file.write_all(&data)?;
+        file.flush()?;
 
         file.seek(io::SeekFrom::Start(cur))?;
         Ok(data.len())
@@ -101,6 +130,7 @@ impl ProtectiveMBR {
             file.write_all(&pdata)?;
         }
         file.write_all(&self.signature)?;
+        file.flush()?;
 
         file.seek(io::SeekFrom::Start(cur))?;
         let bytes_updated: usize = (16 * 4) + 2;
@@ -178,4 +208,52 @@ impl PartRecord {
 
         Ok(buf)
     }
+}
+
+/// Return the 440 bytes of BIOS bootcode.
+pub fn read_bootcode(diskf: &mut fs::File) -> io::Result<[u8; 440]> {
+    let bootcode_offset = 0;
+    let cur = diskf.seek(io::SeekFrom::Current(0))?;
+    let _ = diskf.seek(io::SeekFrom::Start(bootcode_offset))?;
+    let mut bootcode = [0x00; 440];
+    diskf.read_exact(&mut bootcode)?;
+
+    diskf.seek(io::SeekFrom::Start(cur))?;
+    Ok(bootcode)
+}
+
+/// Write the 440 bytes of BIOS bootcode.
+pub fn write_bootcode(diskf: &mut fs::File, bootcode: &[u8; 440]) -> io::Result<()> {
+    let bootcode_offset = 0;
+    let cur = diskf.seek(io::SeekFrom::Current(0))?;
+    let _ = diskf.seek(io::SeekFrom::Start(bootcode_offset))?;
+    diskf.write_all(bootcode)?;
+    diskf.flush()?;
+
+    diskf.seek(io::SeekFrom::Start(cur))?;
+    Ok(())
+}
+
+/// Read the 4 bytes of MBR disk signature.
+pub fn read_disk_signature(diskf: &mut fs::File) -> io::Result<[u8; 4]> {
+    let dsig_offset = 440;
+    let cur = diskf.seek(io::SeekFrom::Current(0))?;
+    let _ = diskf.seek(io::SeekFrom::Start(dsig_offset))?;
+    let mut dsig = [0x00; 4];
+    diskf.read_exact(&mut dsig)?;
+
+    diskf.seek(io::SeekFrom::Start(cur))?;
+    Ok(dsig)
+}
+
+/// Write the 4 bytes of MBR disk signature.
+pub fn write_disk_signature(diskf: &mut fs::File, sig: &[u8; 4]) -> io::Result<()> {
+    let dsig_offset = 440;
+    let cur = diskf.seek(io::SeekFrom::Current(0))?;
+    let _ = diskf.seek(io::SeekFrom::Start(dsig_offset))?;
+    diskf.write_all(sig)?;
+    diskf.flush()?;
+
+    diskf.seek(io::SeekFrom::Start(cur))?;
+    Ok(())
 }
