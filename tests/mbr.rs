@@ -46,3 +46,35 @@ fn test_mbr_write() {
     assert!(size != 0);
     assert_eq!(buf, data0);
 }
+
+#[test]
+fn test_mbr_bootcode() {
+    let mut tempdisk = tempfile::tempfile().unwrap();
+    let m0 = mbr::ProtectiveMBR::new();
+    m0.overwrite_lba0(&mut tempdisk).unwrap();
+
+    let b0 = mbr::read_bootcode(&mut tempdisk).unwrap();
+    assert_eq!(b0.len(), 440);
+    assert_eq!(b0.to_vec(), vec![0; 440]);
+
+    let b1 = [0xAA; 440];
+    mbr::write_bootcode(&mut tempdisk, &b1).unwrap();
+    let b2 = mbr::read_bootcode(&mut tempdisk).unwrap();
+    assert_eq!(b1.to_vec(), b2.to_vec());
+}
+
+#[test]
+fn test_mbr_disksig() {
+    let mut tempdisk = tempfile::tempfile().unwrap();
+    let m0 = mbr::ProtectiveMBR::new();
+    m0.overwrite_lba0(&mut tempdisk).unwrap();
+
+    let s0 = mbr::read_disk_signature(&mut tempdisk).unwrap();
+    assert_eq!(s0.len(), 4);
+    assert_eq!(s0.to_vec(), vec![0; 4]);
+
+    let s1 = [0x00, 0x11, 0x22, 0x33];
+    mbr::write_disk_signature(&mut tempdisk, &s1).unwrap();
+    let s2 = mbr::read_disk_signature(&mut tempdisk).unwrap();
+    assert_eq!(s1.to_vec(), s2.to_vec());
+}
