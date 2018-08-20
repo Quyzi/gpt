@@ -3,7 +3,8 @@
 //! This module provides access to low-level primitives
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
-use byteorder::{LittleEndian, WriteBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use disk;
 use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io};
 
@@ -59,6 +60,64 @@ impl ProtectiveMBR {
             ],
             signature: [0x55, 0xAA],
         }
+    }
+
+    /// Parse input bytes into a protective-MBR object.
+    pub fn from_bytes(buf: &[u8], sector_size: disk::LogicalBlockSize) -> io::Result<Self> {
+        let mut pmbr = Self::new();
+        let totlen: u64 = sector_size.into();
+
+        if buf.len() != (totlen as usize) {
+            return Err(io::Error::new(io::ErrorKind::Other, "invalid MBR length"));
+        }
+
+        pmbr.bootcode.copy_from_slice(&buf[0..440]);
+        pmbr.disk_signature.copy_from_slice(&buf[440..444]);
+        pmbr.unknown = (&buf[444..446]).read_u16::<LittleEndian>()?;
+
+        for (i, p) in pmbr.partitions.iter_mut().enumerate() {
+            let start = i
+                .checked_mul(16)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Other,
+                        "partition record overflow - entry start",
+                    )
+                })?
+                .checked_add(446)
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::Other, "partition overflow - start offset")
+                })?;
+            let end = start.checked_add(16).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Other,
+                    "partition record overflow - end offset",
+                )
+            })?;
+            *p = PartRecord::from_bytes(&buf[start..end])?;
+        }
+
+        pmbr.signature.copy_from_slice(&buf[510..512]);
+        if pmbr.signature != [0x55, 0xAA] {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "invalid MBR signature",
+            ));
+        };
+        Ok(pmbr)
+    }
+
+    /// Read the LBA0 of a disk and parse it into a protective-MBR object.
+    pub fn from_disk(file: &mut fs::File, sector_size: disk::LogicalBlockSize) -> io::Result<Self> {
+        let totlen: u64 = sector_size.into();
+        let mut buf = vec![0u8; totlen as usize];
+        let cur = file.seek(io::SeekFrom::Current(0))?;
+
+        file.seek(io::SeekFrom::Start(0))?;
+        file.read_exact(&mut buf)?;
+        let pmbr = Self::from_bytes(&buf, sector_size);
+        file.seek(io::SeekFrom::Start(cur))?;
+        pmbr
     }
 
     /// Return the memory representation of this MBR as a byte vector.
@@ -187,6 +246,29 @@ impl PartRecord {
         }
     }
 
+    /// Parse input bytes into a Partition Record.
+    pub fn from_bytes(buf: &[u8]) -> io::Result<Self> {
+        if buf.len() != 16 {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "invalid length for a partition record",
+            ));
+        };
+        let pr = Self {
+            boot_indicator: buf[0],
+            start_head: buf[1],
+            start_sector: buf[2],
+            start_track: buf[3],
+            os_type: buf[4],
+            end_head: buf[5],
+            end_sector: buf[6],
+            end_track: buf[7],
+            lb_start: (&buf[8..12]).read_u32::<LittleEndian>()?,
+            lb_size: (&buf[12..16]).read_u32::<LittleEndian>()?,
+        };
+        Ok(pr)
+    }
+
     /// Return the memory representation of this Partition Record as a byte vector.
     pub fn as_bytes(&self) -> io::Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(16);
@@ -247,6 +329,7 @@ pub fn read_disk_signature(diskf: &mut fs::File) -> io::Result<[u8; 4]> {
 }
 
 /// Write the 4 bytes of MBR disk signature.
+#[cfg_attr(feature = "cargo-clippy", allow(trivially_copy_pass_by_ref))]
 pub fn write_disk_signature(diskf: &mut fs::File, sig: &[u8; 4]) -> io::Result<()> {
     let dsig_offset = 440;
     let cur = diskf.seek(io::SeekFrom::Current(0))?;

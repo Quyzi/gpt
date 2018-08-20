@@ -1,7 +1,8 @@
 extern crate gpt;
 extern crate tempfile;
 
-use gpt::mbr;
+use gpt::{disk, mbr};
+use std::fs::File;
 use std::io::Read;
 
 #[test]
@@ -45,6 +46,31 @@ fn test_mbr_write() {
     let size = tempdisk.read_to_end(&mut buf).unwrap();
     assert!(size != 0);
     assert_eq!(buf, data0);
+}
+
+#[test]
+fn test_mbr_read() {
+    let mut diskf = File::open("tests/fixtures/gpt-linux-disk-01.img").unwrap();
+    let m0 = mbr::ProtectiveMBR::from_disk(&mut diskf, disk::LogicalBlockSize::Lb512).unwrap();
+    assert_eq!(m0.bootcode().to_vec(), vec![0; 440]);
+    assert_eq!(m0.disk_signature().to_vec(), vec![0; 4]);
+}
+
+#[test]
+fn test_mbr_rw_roundtrip() {
+    let mut tempdisk = tempfile::tempfile().unwrap();
+    let mut m0 = mbr::ProtectiveMBR::new();
+    let newsig = [0x11, 0x22, 0x33, 0x44];
+    m0.set_disk_signature(newsig);
+    m0.overwrite_lba0(&mut tempdisk).unwrap();
+    let data0 = m0.as_bytes().unwrap();
+
+    let m1 = mbr::ProtectiveMBR::from_disk(&mut tempdisk, disk::LogicalBlockSize::Lb512).unwrap();
+    let data1 = m1.as_bytes().unwrap();
+    assert_eq!(m0.bootcode().to_vec(), m1.bootcode().to_vec());
+    assert_eq!(m0.disk_signature().to_vec(), m1.disk_signature().to_vec());
+    assert_eq!(m0.disk_signature().to_vec(), newsig);
+    assert_eq!(data0, data1);
 }
 
 #[test]
