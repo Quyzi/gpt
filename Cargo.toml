@@ -11,7 +11,7 @@ homepage = "https://github.com/Quyzi/gpt"
 bitflags = "~1.0"
 byteorder = "~1.2"
 crc = "~1.8"
-lazy_static = "~1.0"
+lazy_static = "~1.1"
 log = "~0.4"
 uuid = { version = "~0.6", features = ["v4"] }
 
