@@ -1,8 +1,8 @@
-extern crate gpt;
-extern crate log;
-extern crate simplelog;
-extern crate tempfile;
-extern crate uuid;
+
+
+use simplelog;
+
+use uuid;
 
 use gpt::disk;
 use gpt::header::{read_header, write_header, Header};

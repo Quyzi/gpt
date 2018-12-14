@@ -1,5 +1,5 @@
-extern crate gpt;
-extern crate tempfile;
+use gpt;
+
 
 use gpt::disk;
 use std::path;
