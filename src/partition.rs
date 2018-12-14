@@ -180,7 +180,7 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
 }
 
 fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
-    let s = u.hyphenated().to_string().to_uppercase();
+    let s = u.to_hyphenated().to_string().to_uppercase();
     debug!("looking up partition type, GUID {}", s);
     match PART_HASHMAP.get(&s) {
         Some(part_id) => PartitionType {
@@ -249,7 +249,7 @@ pub(crate) fn file_read_partitions(
         let type_guid = parse_uuid(&mut reader)?;
         let part_guid = parse_uuid(&mut reader)?;
 
-        if part_guid.simple().to_string() == "00000000000000000000000000000000" {
+        if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
             continue;
         }
 
