@@ -185,7 +185,7 @@ pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
 }
 
 impl fmt::Display for Header {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "Disk:\t\t{}\nCRC32:\t\t{}\nTable CRC:\t{}",

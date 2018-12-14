@@ -1,5 +1,5 @@
-extern crate gpt;
-extern crate tempfile;
+
+use tempfile;
 
 use gpt::{disk, mbr};
 use std::fs::File;

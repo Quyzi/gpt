@@ -1,6 +1,6 @@
-extern crate gpt;
-extern crate log;
-extern crate simplelog;
+use gpt;
+
+
 
 use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::io;
