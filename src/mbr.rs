@@ -4,7 +4,7 @@
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use disk;
+use crate::disk;
 use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io};
 
@@ -329,7 +329,7 @@ pub fn read_disk_signature(diskf: &mut fs::File) -> io::Result<[u8; 4]> {
 }
 
 /// Write the 4 bytes of MBR disk signature.
-#[cfg_attr(feature = "cargo-clippy", allow(trivially_copy_pass_by_ref))]
+#[cfg_attr(feature = "cargo-clippy", allow(clippy::trivially_copy_pass_by_ref))]
 pub fn write_disk_signature(diskf: &mut fs::File, sig: &[u8; 4]) -> io::Result<()> {
     let dsig_offset = 440;
     let cur = diskf.seek(io::SeekFrom::Current(0))?;

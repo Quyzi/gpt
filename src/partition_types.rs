@@ -1,5 +1,4 @@
-extern crate uuid;
-
+use lazy_static::*;
 use std::collections::HashMap;
 
 lazy_static! {

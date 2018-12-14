@@ -19,16 +19,9 @@
 
 #![deny(missing_docs)]
 
-#[macro_use]
-extern crate bitflags;
-extern crate byteorder;
-extern crate crc;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-extern crate uuid;
-
+use bitflags;
+use lazy_static;
+use log::*;
 use std::io::Write;
 use std::{fs, io, path};
 

@@ -7,9 +7,10 @@ use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 use uuid;
+use log::*;
 
-use disk;
-use partition;
+use crate::disk;
+use crate::partition;
 
 /// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]

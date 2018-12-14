@@ -1,11 +1,12 @@
 [package]
 name = "gpt"
-version = "0.2.2"
+version = "0.3.0"
 description = "A library to read GPT headers and partition information from disks and disk images."
 documentation = "https://docs.rs/gpt"
 authors = ["Chris Ober <obercgit@gmail.com>", "Chris Holcombe <xfactor973@gmail.com>", "Luca Bruno <lucab@debian.org>"]
 license = "MIT"
 homepage = "https://github.com/Quyzi/gpt"
+edition = "2018"
 
 [dependencies]
 bitflags = "~1.0"
