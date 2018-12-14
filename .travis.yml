@@ -2,7 +2,7 @@ dist: trusty
 language: rust
 rust:
   - nightly-2018-06-11  # pinned toolchain for clippy
-  - 1.26.0              # minimum supported toolchain
+  - 1.31.0              # minimum supported toolchain
   - stable
   - beta
   - nightly
