@@ -285,14 +285,16 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
 pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
     trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
-    let m = f.metadata()?;
-    if m.len() <= lb_size {
+    let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
+    let len = f.seek(std::io::SeekFrom::End(0))?;
+    f.seek(std::io::SeekFrom::Start(old_pos))?;
+    if len <= lb_size {
         return Err(Error::new(
             ErrorKind::Other,
             "disk image too small for backup header",
         ));
     }
-    let bak_offset = m.len().saturating_sub(lb_size);
+    let bak_offset = len.saturating_sub(lb_size);
     let bak_lba = bak_offset / lb_size;
     trace!(
         "backup header: LBA={}, bytes offset={}",
