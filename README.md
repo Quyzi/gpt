@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/Quyzi/gpt.svg?branch=master)](https://travis-ci.org/Quyzi/gpt)
 [![crates.io](https://img.shields.io/crates/v/gpt.svg)](https://crates.io/crates/gpt)
-![minimum rust 1.26](https://img.shields.io/badge/rust-1.26%2B-orange.svg)
+![minimum rust 1.31](https://img.shields.io/badge/rust-1.31%2B-orange.svg)
 [![Documentation](https://docs.rs/gpt/badge.svg)](https://docs.rs/gpt)
 
 A pure-Rust library to work with GPT partition tables.
