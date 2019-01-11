@@ -3,16 +3,15 @@
 //! This module provides access to low-level primitives
 //! to work with GPT partitions.
 
-
+use bitflags::*;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crc::crc32;
+use log::*;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use crc::crc32;
 use uuid;
-use log::*;
-use bitflags::*;
 
 use crate::disk;
 use crate::header::{parse_uuid, partentry_checksum, Header};
@@ -101,7 +100,8 @@ impl Partition {
     /// Write the partition entry to the partitions area and update crc32 for the Header.
     pub fn write(&self, p: &Path, h: &Header, lb_size: disk::LogicalBlockSize) -> Result<()> {
         debug!("writing partition to file: {}", p.display());
-        let pstart = h.part_start
+        let pstart = h
+            .part_start
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
@@ -111,7 +111,8 @@ impl Partition {
 
         let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
         // Seek to header partition checksum location and update it.
-        let hdr_csum = h.current_lba
+        let hdr_csum = h
+            .current_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - header start"))?
             .checked_add(88)
@@ -124,7 +125,8 @@ impl Partition {
 
     /// Return the length (in bytes) of this partition.
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
-        let len = self.last_lba
+        let len = self
+            .last_lba
             .checked_sub(self.first_lba)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
             .checked_mul(lb_size.into())
@@ -134,10 +136,28 @@ impl Partition {
 
     /// Return the starting offset (in bytes) of this partition.
     pub fn bytes_start(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
-        let len = self.first_lba
+        let len = self
+            .first_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition start overflow - bytes"))?;
         Ok(len)
+    }
+
+    /// Check whether this partition is in use
+    pub fn is_used(&self) -> bool {
+        self.part_type_guid.guid != uuid::Uuid::nil()
+    }
+
+    /// Return the number of sectors in the partition
+    pub fn size(&self) -> Result<u64> {
+        if self.first_lba < self.last_lba {
+            return Err(Error::new(
+                ErrorKind::Other,
+                "Invalid partition.  last_lba < first_lba",
+            ));
+        }
+
+        Ok(self.last_lba - self.first_lba)
     }
 }
 
