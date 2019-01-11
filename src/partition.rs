@@ -143,21 +143,20 @@ impl Partition {
         Ok(len)
     }
 
-    /// Check whether this partition is in use
+    /// Check whether this partition is in use.
     pub fn is_used(&self) -> bool {
         self.part_type_guid.guid != uuid::Uuid::nil()
     }
 
-    /// Return the number of sectors in the partition
+    /// Return the number of sectors in the partition.
     pub fn size(&self) -> Result<u64> {
-        if self.first_lba < self.last_lba {
-            return Err(Error::new(
+        match self.last_lba.checked_sub(self.first_lba) {
+            Some(size) => Ok(size),
+            None => Err(Error::new(
                 ErrorKind::Other,
                 "Invalid partition.  last_lba < first_lba",
-            ));
+            )),
         }
-
-        Ok(self.last_lba - self.first_lba)
     }
 }
 

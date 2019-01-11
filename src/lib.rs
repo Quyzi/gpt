@@ -137,7 +137,7 @@ pub struct GptDisk {
 
 impl GptDisk {
     /// Add another partition to this disk.  This tries to find
-    /// the optimum partition location with the lowest block device
+    /// the optimum partition location with the lowest block device.
     pub fn add_partition(
         &mut self,
         name: &str,
@@ -170,31 +170,29 @@ impl GptDisk {
         ))
     }
 
-    /// Find free space on the disk
-    /// Returns a tuple of (starting_lba, length in lba's)
+    /// Find free space on the disk.
+    /// Returns a tuple of (starting_lba, length in lba's).
     pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
         if let Some(primary_header) = self.primary_header() {
-            println!("first_usable: {}", primary_header.first_usable);
+            debug!("first_usable: {}", primary_header.first_usable);
             let mut disk_positions = vec![primary_header.first_usable + 1];
             for part in self.partitions().iter().filter(|p| p.is_used()) {
-                println!("partition: ({}, {})", part.first_lba, part.last_lba);
+                debug!("partition: ({}, {})", part.first_lba, part.last_lba);
                 disk_positions.push(part.first_lba);
                 disk_positions.push(part.last_lba);
             }
             disk_positions.push(primary_header.last_usable - 1);
-            println!("last_usable: {}", primary_header.last_usable);
+            debug!("last_usable: {}", primary_header.last_usable);
             disk_positions.sort();
 
             return disk_positions
-                // Walk through the LBA's in chunks of 2 (ending, starting)
+                // Walk through the LBA's in chunks of 2 (ending, starting).
                 .chunks(2)
-                // Add 1 to the ending and then subtract the starting
-                .map(|p| (p[0] + 1, p[1] - 1))
-                // Ensure that none of these blocks is negative
-                .filter(|(_, space)| *space > 0)
+                // Add 1 to the ending and then subtract the starting.
+                .map(|p| (p[0] + 1, p[1].saturating_sub(p[0])))
                 .collect();
         }
-        // No primary header. Return nothing
+        // No primary header. Return nothing.
         vec![]
     }
 
@@ -224,7 +222,7 @@ impl GptDisk {
     }
 
     /// Sort the partitions by their starting LBA.  Takes into
-    /// account unused partitions
+    /// account unused partitions.
     pub fn sort_partitions(&mut self) {
         self.partitions
             .sort_by(|a, b| match (a.is_used(), b.is_used()) {
@@ -288,7 +286,7 @@ impl GptDisk {
         h2.write_backup(&mut self.file, self.config.lb_size)?;
         h1.write_primary(&mut self.file, self.config.lb_size)?;
 
-        // Sort so we're not seeking all over the place
+        // Sort so we're not seeking all over the place.
         self.sort_partitions();
         for partition in self.partitions() {
             partition.write(&self.path, &h1, self.config.lb_size)?;
