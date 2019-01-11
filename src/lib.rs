@@ -156,7 +156,7 @@ impl GptDisk {
                     part_guid: uuid::Uuid::new_v4(),
                     first_lba: starting_lba,
                     last_lba: starting_lba + size as u64,
-                    flags: flags,
+                    flags,
                     name: name.to_string(),
                 };
                 self.partitions.push(part);
@@ -164,10 +164,10 @@ impl GptDisk {
             }
         }
 
-        return Err(io::Error::new(
+        Err(io::Error::new(
             io::ErrorKind::Other,
             "Unable to find enough space on drive",
-        ));
+        ))
     }
 
     /// Find free space on the disk
