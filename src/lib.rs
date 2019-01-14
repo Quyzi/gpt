@@ -146,11 +146,11 @@ impl GptDisk {
         flags: u64,
     ) -> io::Result<()> {
         self.sort_partitions();
-        // Find the lowest lba that is larger than size
+        // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
             if length as usize >= size {
-                // Found our free slice
+                // Found our free slice.
                 let part = partition::Partition {
                     part_type_guid: part_type,
                     part_guid: uuid::Uuid::new_v4(),
@@ -160,6 +160,13 @@ impl GptDisk {
                     name: name.to_string(),
                 };
                 self.partitions.push(part);
+                // Compute a new header.
+                let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
+                let h1 = header::Header::compute_new(true, &self.partitions, self.guid, bak)?;
+                let h2 = header::Header::compute_new(false, &self.partitions, self.guid, bak)?;
+                self.primary_header = Some(h1);
+                self.backup_header = Some(h2);
+                self.config.initialized = true;
                 return Ok(());
             }
         }
@@ -286,14 +293,15 @@ impl GptDisk {
         h2.write_backup(&mut self.file, self.config.lb_size)?;
         h1.write_primary(&mut self.file, self.config.lb_size)?;
 
+        self.file.flush()?;
+        self.primary_header = Some(h1.clone());
+        self.backup_header = Some(h2);
+
         // Sort so we're not seeking all over the place.
         self.sort_partitions();
         for partition in self.partitions() {
             partition.write(&self.path, &h1, self.config.lb_size)?;
         }
-        self.file.flush()?;
-        self.primary_header = Some(h1);
-        self.backup_header = Some(h2);
 
         Ok(self.file)
     }

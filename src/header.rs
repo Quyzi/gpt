@@ -2,12 +2,12 @@
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc::{crc32, Hasher32};
+use log::*;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 use uuid;
-use log::*;
 
 use crate::disk;
 use crate::partition;
@@ -89,6 +89,10 @@ impl Header {
     pub fn write_primary(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         // This is the primary header. It must start before the backup one.
         if self.current_lba >= self.backup_lba {
+            debug!(
+                "current lba: {} backup_lba: {}",
+                self.current_lba, self.backup_lba
+            );
             return Err(Error::new(
                 ErrorKind::Other,
                 "primary header does not start before backup one",
@@ -104,6 +108,10 @@ impl Header {
     pub fn write_backup(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         // This is the backup header. It must start after the primary one.
         if self.current_lba <= self.backup_lba {
+            debug!(
+                "current lba: {} backup_lba: {}",
+                self.current_lba, self.backup_lba
+            );
             return Err(Error::new(
                 ErrorKind::Other,
                 "backup header does not start after primary one",
@@ -130,7 +138,8 @@ impl Header {
         let checksum = calculate_crc32(&bytes)?;
 
         // Write it to disk in 1 shot
-        let start = lba.checked_mul(lb_size.into())
+        let start = lba
+            .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
         let _ = file.seek(SeekFrom::Start(start))?;
         let len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
@@ -319,7 +328,8 @@ pub(crate) fn partentry_checksum(
     lb_size: disk::LogicalBlockSize,
 ) -> Result<u32> {
     // Seek to start of partition table.
-    let start = hdr.part_start
+    let start = hdr
+        .part_start
         .checked_mul(lb_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - partition table start"))?;
     let _ = file.seek(SeekFrom::Start(start))?;
