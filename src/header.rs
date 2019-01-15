@@ -7,7 +7,6 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::slice;
 use uuid;
 
 use crate::disk;
