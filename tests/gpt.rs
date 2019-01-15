@@ -35,7 +35,7 @@ fn test_gptdisk_linux_01() {
     assert_eq!(*gdisk.logical_block_size(), lb_size);
     assert!(gdisk.primary_header().is_some());
     assert!(gdisk.backup_header().is_some());
-    assert_eq!(gdisk.partitions().len(), 1);
+    assert_eq!(gdisk.partitions().len(), 128);
 
     let h1 = gdisk.primary_header().unwrap();
     assert_eq!(h1.current_lba, 1);

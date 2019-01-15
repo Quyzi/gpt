@@ -92,6 +92,6 @@ fn test_write_header() {
         name: "gpt test".to_string(),
         id: 0,
     };
-    p.write(tempdisk.path(), &h, disk::DEFAULT_SECTOR_SIZE)
+    p.write(tempdisk.path(), h.part_start, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
 }
