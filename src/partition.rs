@@ -14,7 +14,7 @@ use std::path::Path;
 use uuid;
 
 use crate::disk;
-use crate::header::{parse_uuid, partentry_checksum, Header};
+use crate::header::{parse_uuid, Header};
 use crate::partition_types::PART_HASHMAP;
 
 bitflags! {
@@ -101,10 +101,9 @@ impl Partition {
     }
 
     /// Write the partition entry to the partitions area and update crc32 for the Header.
-    pub fn write(&self, p: &Path, h: &Header, lb_size: disk::LogicalBlockSize) -> Result<()> {
+    pub fn write(&self, p: &Path, start_lba: u64, lb_size: disk::LogicalBlockSize) -> Result<()> {
         debug!("writing partition to: {}", p.display());
-        let pstart = h
-            .part_start
+        let pstart = start_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
@@ -116,19 +115,6 @@ impl Partition {
         file.seek(SeekFrom::Start(pstart + offset))?;
         trace!("writing {:?}", &self.as_bytes(128));
         file.write_all(&self.as_bytes(128)?)?;
-
-        let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
-        trace!("computed partitions CRC32: {:#x}", parts_checksum);
-        // Seek to header partition checksum location and update it.
-        let hdr_csum = h
-            .current_lba
-            .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - header start"))?
-            .checked_add(88)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - checksum offset"))?;
-        trace!("Seeking to {} to write checksum", hdr_csum);
-        let _ = file.seek(SeekFrom::Start(hdr_csum))?;
-        file.write_u32::<LittleEndian>(parts_checksum)?;
 
         Ok(())
     }
@@ -281,9 +267,10 @@ pub(crate) fn file_read_partitions(
         let type_guid = parse_uuid(&mut reader)?;
         let part_guid = parse_uuid(&mut reader)?;
 
-        if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
-            continue;
-        }
+        // Add unused partitions.  We will skip them later
+        //if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
+        //continue;
+        //}
 
         let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
         let p: Partition = Partition {

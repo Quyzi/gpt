@@ -74,7 +74,7 @@ impl Header {
             last_usable: last,
             disk_guid: guid,
             part_start: 2,
-            num_parts: pp.len() as u32,
+            num_parts: pp.iter().filter(|p| p.is_used()).count() as u32,
             part_size: 128,
             crc32_parts: 0,
         };
@@ -152,14 +152,18 @@ impl Header {
         Ok(len)
     }
 
-    fn as_bytes(&self, checksum: Option<u32>, parts_checksum: Option<u32>) -> Result<Vec<u8>> {
+    fn as_bytes(
+        &self,
+        header_checksum: Option<u32>,
+        partitions_checksum: Option<u32>,
+    ) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
         let disk_guid_fields = self.disk_guid.as_fields();
-        
+
         buff.write_all(self.signature.as_bytes())?;
         buff.write_u32::<LittleEndian>(self.revision)?;
         buff.write_u32::<LittleEndian>(self.header_size_le)?;
-        match checksum {
+        match header_checksum {
             Some(c) => buff.write_u32::<LittleEndian>(c)?,
             None => buff.write_u32::<LittleEndian>(0)?,
         };
@@ -175,7 +179,7 @@ impl Header {
         buff.write_u64::<LittleEndian>(self.part_start)?;
         buff.write_u32::<LittleEndian>(self.num_parts)?;
         buff.write_u32::<LittleEndian>(self.part_size)?;
-        match parts_checksum {
+        match partitions_checksum {
             Some(c) => buff.write_u32::<LittleEndian>(c)?,
             None => buff.write_u32::<LittleEndian>(0)?,
         };
@@ -287,18 +291,20 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
         crc32_parts: reader.read_u32::<LittleEndian>()?,
     };
     trace!("header: {:?}", &hdr[..]);
+    trace!("header gpt: {}", h.disk_guid.to_hyphenated().to_string());
 
     let mut hdr_crc = hdr;
     for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
         *crc_byte = 0;
     }
-    let c = crc32::checksum_ieee(&hdr_crc);
+    let c = calculate_crc32(&hdr_crc)?;
     trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
     if c == h.crc32 {
         Ok(h)
     } else {
         Err(Error::new(ErrorKind::Other, "invalid CRC32 checksum"))
     }
+    //Ok(h)
 }
 
 pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
@@ -338,23 +344,25 @@ pub(crate) fn partentry_checksum(
     lb_size: disk::LogicalBlockSize,
 ) -> Result<u32> {
     // Seek to start of partition table.
+    trace!("Computing partition checksum");
     let start = hdr
         .part_start
         .checked_mul(lb_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - partition table start"))?;
+    trace!("Seek to {}", start);
     let _ = file.seek(SeekFrom::Start(start))?;
 
     // Read partition table.
     let pt_len = u64::from(hdr.num_parts)
         .checked_mul(hdr.part_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "partition table - size"))?;
+    trace!("Reading {} bytes", pt_len);
     let mut buf = vec![0; pt_len as usize];
     file.read_exact(&mut buf)?;
 
+    //trace!("Buffer before checksum: {:?}", buf);
     // Compute CRC32 over all table bits.
-    let mut digest = crc32::Digest::new(crc32::IEEE);
-    digest.write(&buf);
-    Ok(digest.sum32())
+    calculate_crc32(&buf)
 }
 
 /// A helper function to create a new header and write it to disk.
