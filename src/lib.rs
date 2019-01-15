@@ -109,6 +109,7 @@ impl GptConfig {
             backup_header: Some(h2),
             partitions: table,
         };
+        debug!("disk: {:?}", disk);
         Ok(disk)
     }
 }
@@ -151,6 +152,14 @@ impl GptDisk {
         for (starting_lba, length) in free_sections {
             if length as usize >= size {
                 // Found our free slice.
+                let partition_id = self.find_next_partition_id();
+                debug!(
+                    "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
+                    partition_id,
+                    part_type,
+                    starting_lba,
+                    starting_lba + size as u64
+                );
                 let part = partition::Partition {
                     part_type_guid: part_type,
                     part_guid: uuid::Uuid::new_v4(),
@@ -158,15 +167,9 @@ impl GptDisk {
                     last_lba: starting_lba + size as u64,
                     flags,
                     name: name.to_string(),
+                    id: partition_id,
                 };
                 self.partitions.push(part);
-                // Compute a new header.
-                let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
-                let h1 = header::Header::compute_new(true, &self.partitions, self.guid, bak)?;
-                let h2 = header::Header::compute_new(false, &self.partitions, self.guid, bak)?;
-                self.primary_header = Some(h1);
-                self.backup_header = Some(h2);
-                self.config.initialized = true;
                 return Ok(());
             }
         }
@@ -201,6 +204,14 @@ impl GptDisk {
         }
         // No primary header. Return nothing.
         vec![]
+    }
+
+    /// Find next highest partition id.
+    pub fn find_next_partition_id(&self) -> u32 {
+        match self.partitions().iter().max_by(|x, y| x.id.cmp(&y.id)) {
+            Some(i) => i.id + 1,
+            None => 0,
+        }
     }
 
     /// Retrieve primary header, if any.
@@ -287,20 +298,30 @@ impl GptDisk {
         if !self.config.initialized {
             return Err(io::Error::new(io::ErrorKind::Other, "disk not initialized"));
         }
+        debug!("Computing new headers");
+        trace!("old primary header: {:?}", self.primary_header);
+        trace!("old backup header: {:?}", self.backup_header);
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
-        let h2 = header::Header::compute_new(true, &[], self.guid, bak)?;
-        let h1 = header::Header::compute_new(true, &[], self.guid, bak)?;
-        h2.write_backup(&mut self.file, self.config.lb_size)?;
-        h1.write_primary(&mut self.file, self.config.lb_size)?;
+        trace!("old backup lba: {}", bak);
+        let new_backup_header =
+            header::Header::compute_new(false, &self.partitions, self.guid, bak)?;
+        let new_primary_header =
+            header::Header::compute_new(true, &self.partitions, self.guid, bak)?;
+        debug!("Writing backup header");
+        new_backup_header.write_backup(&mut self.file, self.config.lb_size)?;
+        debug!("Writing primary header");
+        new_primary_header.write_primary(&mut self.file, self.config.lb_size)?;
+        trace!("new primary header: {:?}", new_primary_header);
+        trace!("new backup header: {:?}", new_backup_header);
 
         self.file.flush()?;
-        self.primary_header = Some(h1.clone());
-        self.backup_header = Some(h2);
+        self.primary_header = Some(new_primary_header.clone());
+        self.backup_header = Some(new_backup_header);
 
         // Sort so we're not seeking all over the place.
         self.sort_partitions();
         for partition in self.partitions() {
-            partition.write(&self.path, &h1, self.config.lb_size)?;
+            partition.write(&self.path, &new_primary_header, self.config.lb_size)?;
         }
 
         Ok(self.file)

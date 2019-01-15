@@ -44,6 +44,8 @@ pub struct Partition {
     pub flags: u64,
     /// Partition name.
     pub name: String,
+    /// The partition id number
+    pub id: u32,
 }
 
 impl Partition {
@@ -60,6 +62,7 @@ impl Partition {
             last_lba: 0,
             flags: 0,
             name: "".to_string(),
+            id: 0,
         }
     }
 
@@ -99,17 +102,23 @@ impl Partition {
 
     /// Write the partition entry to the partitions area and update crc32 for the Header.
     pub fn write(&self, p: &Path, h: &Header, lb_size: disk::LogicalBlockSize) -> Result<()> {
-        debug!("writing partition to file: {}", p.display());
+        debug!("writing partition to: {}", p.display());
         let pstart = h
             .part_start
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-        trace!("seeking to partition start: {:#x}", pstart);
-        file.seek(SeekFrom::Start(pstart))?;
+        // The offset is 128 * partition_id
+        let offset = pstart
+            .checked_mul(self.id as u64 * 128)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
+        trace!("seeking to partition start: {}", pstart + offset);
+        file.seek(SeekFrom::Start(pstart + offset))?;
+        trace!("writing {:?}", &self.as_bytes(128));
         file.write_all(&self.as_bytes(128)?)?;
 
         let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
+        trace!("computed partitions CRC32: {:#x}", parts_checksum);
         // Seek to header partition checksum location and update it.
         let hdr_csum = h
             .current_lba
@@ -117,6 +126,7 @@ impl Partition {
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - header start"))?
             .checked_add(88)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - checksum offset"))?;
+        trace!("Seeking to {} to write checksum", hdr_csum);
         let _ = file.seek(SeekFrom::Start(hdr_csum))?;
         file.write_u32::<LittleEndian>(parts_checksum)?;
 
@@ -260,7 +270,7 @@ pub(crate) fn file_read_partitions(
     let mut parts: Vec<Partition> = Vec::new();
 
     trace!("scanning {} partitions", header.num_parts);
-    for _ in 0..header.num_parts {
+    for i in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
         let mut nameraw: [u8; 72] = [0; 72];
 
@@ -283,6 +293,7 @@ pub(crate) fn file_read_partitions(
             last_lba: reader.read_u64::<LittleEndian>()?,
             flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
+            id: u32::from(i),
         };
 
         parts.push(p);

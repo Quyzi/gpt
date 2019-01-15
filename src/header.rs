@@ -132,17 +132,22 @@ impl Header {
     ) -> Result<usize> {
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, self, lb_size)?;
+        trace!("computed partitions CRC32: {:#x}", parts_checksum);
         let bytes = self.as_bytes(None, Some(parts_checksum))?;
+        trace!("bytes before checksum: {:?}", bytes);
 
         // Calculate the CRC32 from the byte array
         let checksum = calculate_crc32(&bytes)?;
+        trace!("computed header CRC32: {:#x}", checksum);
 
         // Write it to disk in 1 shot
         let start = lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
+        trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
         let len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        trace!("Wrote {} bytes", len);
 
         Ok(len)
     }
@@ -277,6 +282,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
         part_size: reader.read_u32::<LittleEndian>()?,
         crc32_parts: reader.read_u32::<LittleEndian>()?,
     };
+    trace!("header: {:?}", &hdr[..]);
 
     let mut hdr_crc = hdr;
     for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
@@ -284,7 +290,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
     }
     let c = crc32::checksum_ieee(&hdr_crc);
     trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
-    if crc32::checksum_ieee(&hdr_crc) == h.crc32 {
+    if c == h.crc32 {
         Ok(h)
     } else {
         Err(Error::new(ErrorKind::Other, "invalid CRC32 checksum"))
