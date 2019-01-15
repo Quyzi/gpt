@@ -43,6 +43,7 @@ fn test_read_header() {
         last_lba: 62,
         flags: 0,
         name: "primary".to_string(),
+        id: 0,
     };
 
     let diskpath = Path::new("tests/fixtures/gpt-linux-disk-01.img");
@@ -89,6 +90,7 @@ fn test_write_header() {
         last_lba: 40,
         flags: 0,
         name: "gpt test".to_string(),
+        id: 0,
     };
     p.write(tempdisk.path(), &h, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
