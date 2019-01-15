@@ -183,16 +183,16 @@ impl GptDisk {
     /// Find free space on the disk.
     /// Returns a tuple of (starting_lba, length in lba's).
     pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
-        if let Some(primary_header) = self.primary_header() {
-            trace!("first_usable: {}", primary_header.first_usable);
-            let mut disk_positions = vec![primary_header.first_usable + 1];
+        if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
+            trace!("first_usable: {}", header.first_usable);
+            let mut disk_positions = vec![header.first_usable + 1];
             for part in self.partitions().iter().filter(|p| p.is_used()) {
                 trace!("partition: ({}, {})", part.first_lba, part.last_lba);
                 disk_positions.push(part.first_lba);
                 disk_positions.push(part.last_lba);
             }
-            disk_positions.push(primary_header.last_usable - 1);
-            trace!("last_usable: {}", primary_header.last_usable);
+            disk_positions.push(header.last_usable - 1);
+            trace!("last_usable: {}", header.last_usable);
             disk_positions.sort();
 
             return disk_positions

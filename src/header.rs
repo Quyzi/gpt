@@ -304,7 +304,6 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
     } else {
         Err(Error::new(ErrorKind::Other, "invalid CRC32 checksum"))
     }
-    //Ok(h)
 }
 
 pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
