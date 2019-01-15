@@ -163,7 +163,7 @@ impl Header {
         buff.write_u64::<LittleEndian>(self.backup_lba)?;
         buff.write_u64::<LittleEndian>(self.first_usable)?;
         buff.write_u64::<LittleEndian>(self.last_usable)?;
-        buff.write_uint::<LittleEndian>(disk_guid_rdr.read_uint::<LittleEndian>(16).unwrap(), 16)?;
+        buff.write_u128::<LittleEndian>(disk_guid_rdr.read_u128::<LittleEndian>().unwrap())?;
         buff.write_u64::<LittleEndian>(self.part_start)?;
         buff.write_u32::<LittleEndian>(self.num_parts)?;
         buff.write_u32::<LittleEndian>(self.part_size)?;
