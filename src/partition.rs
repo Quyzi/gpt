@@ -110,7 +110,7 @@ impl Partition {
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
         // The offset is 128 * partition_id
         let offset = pstart
-            .checked_mul(self.id as u64 * 128)
+            .checked_mul(u64::from(self.id) * 128)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to partition start: {}", pstart + offset);
         file.seek(SeekFrom::Start(pstart + offset))?;
@@ -293,7 +293,7 @@ pub(crate) fn file_read_partitions(
             last_lba: reader.read_u64::<LittleEndian>()?,
             flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
-            id: u32::from(i),
+            id: i,
         };
 
         parts.push(p);
