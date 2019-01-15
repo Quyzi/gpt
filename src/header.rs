@@ -149,6 +149,7 @@ impl Header {
 
     fn as_bytes(&self, checksum: Option<u32>, parts_checksum: Option<u32>) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
+        let mut disk_guid_rdr = Cursor::new(self.disk_guid.as_bytes());
 
         buff.write_all(self.signature.as_bytes())?;
         buff.write_u32::<LittleEndian>(self.revision)?;
@@ -162,7 +163,7 @@ impl Header {
         buff.write_u64::<LittleEndian>(self.backup_lba)?;
         buff.write_u64::<LittleEndian>(self.first_usable)?;
         buff.write_u64::<LittleEndian>(self.last_usable)?;
-        buff.write_all(self.disk_guid.as_bytes())?;
+        buff.write_uint::<LittleEndian>(disk_guid_rdr.read_uint::<LittleEndian>(16).unwrap(), 16)?;
         buff.write_u64::<LittleEndian>(self.part_start)?;
         buff.write_u32::<LittleEndian>(self.num_parts)?;
         buff.write_u32::<LittleEndian>(self.part_size)?;
