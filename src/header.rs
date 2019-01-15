@@ -7,6 +7,7 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::slice;
 use uuid;
 
 use crate::disk;
@@ -149,8 +150,8 @@ impl Header {
 
     fn as_bytes(&self, checksum: Option<u32>, parts_checksum: Option<u32>) -> Result<Vec<u8>> {
         let mut buff: Vec<u8> = Vec::new();
-        let mut disk_guid_rdr = Cursor::new(self.disk_guid.as_bytes());
-
+        let disk_guid_fields = self.disk_guid.as_fields();
+        
         buff.write_all(self.signature.as_bytes())?;
         buff.write_u32::<LittleEndian>(self.revision)?;
         buff.write_u32::<LittleEndian>(self.header_size_le)?;
@@ -163,7 +164,10 @@ impl Header {
         buff.write_u64::<LittleEndian>(self.backup_lba)?;
         buff.write_u64::<LittleEndian>(self.first_usable)?;
         buff.write_u64::<LittleEndian>(self.last_usable)?;
-        buff.write_u128::<LittleEndian>(disk_guid_rdr.read_u128::<LittleEndian>().unwrap())?;
+        buff.write_u32::<LittleEndian>(disk_guid_fields.0)?;
+        buff.write_u16::<LittleEndian>(disk_guid_fields.1)?;
+        buff.write_u16::<LittleEndian>(disk_guid_fields.2)?;
+        buff.write_all(disk_guid_fields.3)?; // May need to be written in reverse
         buff.write_u64::<LittleEndian>(self.part_start)?;
         buff.write_u32::<LittleEndian>(self.num_parts)?;
         buff.write_u32::<LittleEndian>(self.part_size)?;
