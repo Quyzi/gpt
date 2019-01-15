@@ -108,8 +108,8 @@ impl Partition {
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
         // The offset is 128 * partition_id
-        let offset = pstart
-            .checked_mul(u64::from(self.id) * 128)
+        let offset = u64::from(self.id)
+            .checked_mul(128)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to partition start: {}", pstart + offset);
         file.seek(SeekFrom::Start(pstart + offset))?;
