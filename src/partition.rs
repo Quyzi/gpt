@@ -3,19 +3,18 @@
 //! This module provides access to low-level primitives
 //! to work with GPT partitions.
 
-
+use bitflags::*;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crc::crc32;
+use log::*;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use crc::crc32;
 use uuid;
-use log::*;
-use bitflags::*;
 
 use crate::disk;
-use crate::header::{parse_uuid, partentry_checksum, Header};
+use crate::header::{parse_uuid, Header};
 use crate::partition_types::PART_HASHMAP;
 
 bitflags! {
@@ -45,6 +44,8 @@ pub struct Partition {
     pub flags: u64,
     /// Partition name.
     pub name: String,
+    /// The partition id number
+    pub id: u32,
 }
 
 impl Partition {
@@ -61,6 +62,7 @@ impl Partition {
             last_lba: 0,
             flags: 0,
             name: "".to_string(),
+            id: 0,
         }
     }
 
@@ -99,32 +101,28 @@ impl Partition {
     }
 
     /// Write the partition entry to the partitions area and update crc32 for the Header.
-    pub fn write(&self, p: &Path, h: &Header, lb_size: disk::LogicalBlockSize) -> Result<()> {
-        debug!("writing partition to file: {}", p.display());
-        let pstart = h.part_start
+    pub fn write(&self, p: &Path, start_lba: u64, lb_size: disk::LogicalBlockSize) -> Result<()> {
+        debug!("writing partition to: {}", p.display());
+        let pstart = start_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-        trace!("seeking to partition start: {:#x}", pstart);
-        file.seek(SeekFrom::Start(pstart))?;
+        // The offset is 128 * partition_id
+        let offset = u64::from(self.id)
+            .checked_mul(128)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
+        trace!("seeking to partition start: {}", pstart + offset);
+        file.seek(SeekFrom::Start(pstart + offset))?;
+        trace!("writing {:?}", &self.as_bytes(128));
         file.write_all(&self.as_bytes(128)?)?;
-
-        let parts_checksum = partentry_checksum(&mut file, h, lb_size)?;
-        // Seek to header partition checksum location and update it.
-        let hdr_csum = h.current_lba
-            .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - header start"))?
-            .checked_add(88)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - checksum offset"))?;
-        let _ = file.seek(SeekFrom::Start(hdr_csum))?;
-        file.write_u32::<LittleEndian>(parts_checksum)?;
 
         Ok(())
     }
 
     /// Return the length (in bytes) of this partition.
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
-        let len = self.last_lba
+        let len = self
+            .last_lba
             .checked_sub(self.first_lba)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
             .checked_mul(lb_size.into())
@@ -134,10 +132,27 @@ impl Partition {
 
     /// Return the starting offset (in bytes) of this partition.
     pub fn bytes_start(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
-        let len = self.first_lba
+        let len = self
+            .first_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition start overflow - bytes"))?;
         Ok(len)
+    }
+
+    /// Check whether this partition is in use.
+    pub fn is_used(&self) -> bool {
+        self.part_type_guid.guid != uuid::Uuid::nil()
+    }
+
+    /// Return the number of sectors in the partition.
+    pub fn size(&self) -> Result<u64> {
+        match self.last_lba.checked_sub(self.first_lba) {
+            Some(size) => Ok(size),
+            None => Err(Error::new(
+                ErrorKind::Other,
+                "Invalid partition.  last_lba < first_lba",
+            )),
+        }
     }
 }
 
@@ -241,7 +256,7 @@ pub(crate) fn file_read_partitions(
     let mut parts: Vec<Partition> = Vec::new();
 
     trace!("scanning {} partitions", header.num_parts);
-    for _ in 0..header.num_parts {
+    for i in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
         let mut nameraw: [u8; 72] = [0; 72];
 
@@ -252,9 +267,10 @@ pub(crate) fn file_read_partitions(
         let type_guid = parse_uuid(&mut reader)?;
         let part_guid = parse_uuid(&mut reader)?;
 
-        if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
-            continue;
-        }
+        // Add unused partitions.  We will skip them later
+        //if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
+        //continue;
+        //}
 
         let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
         let p: Partition = Partition {
@@ -264,6 +280,7 @@ pub(crate) fn file_read_partitions(
             last_lba: reader.read_u64::<LittleEndian>()?,
             flags: reader.read_u64::<LittleEndian>()?,
             name: partname.to_string(),
+            id: i,
         };
 
         parts.push(p);

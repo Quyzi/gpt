@@ -22,6 +22,7 @@
 use bitflags;
 use lazy_static;
 use log::*;
+use std::cmp::Ordering;
 use std::io::Write;
 use std::{fs, io, path};
 
@@ -108,6 +109,7 @@ impl GptConfig {
             backup_header: Some(h2),
             partitions: table,
         };
+        debug!("disk: {:?}", disk);
         Ok(disk)
     }
 }
@@ -135,6 +137,90 @@ pub struct GptDisk {
 }
 
 impl GptDisk {
+    /// Add another partition to this disk.  This tries to find
+    /// the optimum partition location with the lowest block device.
+    pub fn add_partition(
+        &mut self,
+        name: &str,
+        size: usize,
+        part_type: partition::PartitionType,
+        flags: u64,
+    ) -> io::Result<()> {
+        self.sort_partitions();
+        // Find the lowest lba that is larger than size.
+        let free_sections = self.find_free_sectors();
+        for (starting_lba, length) in free_sections {
+            if length as usize >= size {
+                // Found our free slice.
+                let partition_id = self.find_next_partition_id();
+                debug!(
+                    "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
+                    partition_id,
+                    part_type,
+                    starting_lba,
+                    starting_lba + size as u64
+                );
+                let part = partition::Partition {
+                    part_type_guid: part_type,
+                    part_guid: uuid::Uuid::new_v4(),
+                    first_lba: starting_lba,
+                    last_lba: starting_lba + size as u64,
+                    flags,
+                    name: name.to_string(),
+                    id: partition_id,
+                };
+                self.partitions.push(part);
+                return Ok(());
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Unable to find enough space on drive",
+        ))
+    }
+
+    /// Find free space on the disk.
+    /// Returns a tuple of (starting_lba, length in lba's).
+    pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
+        if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
+            trace!("first_usable: {}", header.first_usable);
+            let mut disk_positions = vec![header.first_usable + 1];
+            for part in self.partitions().iter().filter(|p| p.is_used()) {
+                trace!("partition: ({}, {})", part.first_lba, part.last_lba);
+                disk_positions.push(part.first_lba);
+                disk_positions.push(part.last_lba);
+            }
+            disk_positions.push(header.last_usable - 1);
+            trace!("last_usable: {}", header.last_usable);
+            disk_positions.sort();
+
+            return disk_positions
+                // Walk through the LBA's in chunks of 2 (ending, starting).
+                .chunks(2)
+                // Add 1 to the ending and then subtract the starting.
+                .map(|p| (p[0] + 1, p[1].saturating_sub(p[0])))
+                .collect();
+        }
+        // No primary header. Return nothing.
+        vec![]
+    }
+
+    /// Find next highest partition id.
+    pub fn find_next_partition_id(&self) -> u32 {
+        match self
+            .partitions()
+            .iter()
+            // Skip unused partitions.
+            .filter(|p| p.is_used())
+            // Find the maximum id that isn't used.
+            .max_by(|x, y| x.id.cmp(&y.id))
+        {
+            Some(i) => i.id + 1,
+            None => 0,
+        }
+    }
+
     /// Retrieve primary header, if any.
     pub fn primary_header(&self) -> Option<&header::Header> {
         self.primary_header.as_ref()
@@ -158,6 +244,18 @@ impl GptDisk {
     /// Retrieve disk logical block size.
     pub fn logical_block_size(&self) -> &disk::LogicalBlockSize {
         &self.config.lb_size
+    }
+
+    /// Sort the partitions by their starting LBA.  Takes into
+    /// account unused partitions.
+    pub fn sort_partitions(&mut self) {
+        self.partitions
+            .sort_by(|a, b| match (a.is_used(), b.is_used()) {
+                (true, true) => a.first_lba.cmp(&b.first_lba),
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                (false, false) => Ordering::Equal,
+            });
     }
 
     /// Update disk UUID.
@@ -207,15 +305,34 @@ impl GptDisk {
         if !self.config.initialized {
             return Err(io::Error::new(io::ErrorKind::Other, "disk not initialized"));
         }
+        debug!("Computing new headers");
+        trace!("old primary header: {:?}", self.primary_header);
+        trace!("old backup header: {:?}", self.backup_header);
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
-        let h2 = header::Header::compute_new(true, &[], self.guid, bak)?;
-        let h1 = header::Header::compute_new(true, &[], self.guid, bak)?;
-        // TODO(lucab): write partition entries to disk.
-        h2.write_backup(&mut self.file, self.config.lb_size)?;
-        h1.write_primary(&mut self.file, self.config.lb_size)?;
+        trace!("old backup lba: {}", bak);
+        // Sort so we're not seeking all over the place.
+        self.sort_partitions();
+        for partition in self.partitions().iter().filter(|p| p.is_used()) {
+            partition.write(
+                &self.path,
+                self.primary_header.clone().unwrap().part_start,
+                self.config.lb_size,
+            )?;
+        }
+        let new_backup_header =
+            header::Header::compute_new(false, &self.partitions, self.guid, bak)?;
+        let new_primary_header =
+            header::Header::compute_new(true, &self.partitions, self.guid, bak)?;
+        debug!("Writing backup header");
+        new_backup_header.write_backup(&mut self.file, self.config.lb_size)?;
+        debug!("Writing primary header");
+        new_primary_header.write_primary(&mut self.file, self.config.lb_size)?;
+        trace!("new primary header: {:?}", new_primary_header);
+        trace!("new backup header: {:?}", new_backup_header);
+
         self.file.flush()?;
-        self.primary_header = Some(h1);
-        self.backup_header = Some(h2);
+        self.primary_header = Some(new_primary_header.clone());
+        self.backup_header = Some(new_backup_header);
 
         Ok(self.file)
     }
