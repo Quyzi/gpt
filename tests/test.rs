@@ -1,12 +1,11 @@
-
-
 use simplelog;
 
 use uuid;
 
 use gpt::disk;
 use gpt::header::{read_header, write_header, Header};
-use gpt::partition::{read_partitions, Partition, PartitionType};
+use gpt::partition::{read_partitions, Partition};
+use gpt::partition_types::Type;
 use simplelog::{Config, SimpleLogger};
 use std::io::Write;
 use std::path::Path;
@@ -33,11 +32,7 @@ fn test_read_header() {
     };
 
     let expected_partition = Partition {
-        part_type_guid: PartitionType {
-            guid: uuid::Uuid::parse_str("0FC63DAF-8483-4772-8E79-3D69D8477DE4").unwrap(),
-            os: "Linux".to_string(),
-            description: "Linux Filesystem Data".to_string(),
-        },
+        part_type_guid: gpt::partition_types::LINUX_FS,
         part_guid: uuid::Uuid::from_str("6fcc8240-3985-4840-901f-a05e7fd9b69d").unwrap(),
         first_lba: 34,
         last_lba: 62,
@@ -80,11 +75,7 @@ fn test_write_header() {
     println!("header: {:#?}", h);
 
     let p = Partition {
-        part_type_guid: PartitionType {
-            guid: uuid::Uuid::parse_str("0FC63DAF-8483-4772-8E79-3D69D8477DE4").unwrap(),
-            os: "Linux".to_string(),
-            description: "Linux Filesystem Data".to_string(),
-        },
+        part_type_guid: Type::from_str("0FC63DAF-8483-4772-8E79-3D69D8477DE4").unwrap(),
         part_guid: uuid::Uuid::new_v4(),
         first_lba: 36,
         last_lba: 40,

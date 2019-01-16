@@ -11,11 +11,12 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::str::FromStr;
 use uuid;
 
 use crate::disk;
 use crate::header::{parse_uuid, Header};
-use crate::partition_types::PART_HASHMAP;
+use crate::partition_types::{OperatingSystem, Type};
 
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
@@ -33,7 +34,7 @@ bitflags! {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Partition {
     /// GUID of the partition type.
-    pub part_type_guid: PartitionType,
+    pub part_type_guid: Type,
     /// UUID of the partition.
     pub part_guid: uuid::Uuid,
     /// First LBA of the partition.
@@ -52,11 +53,7 @@ impl Partition {
     /// Create a partition entry of type "unused", whose bytes are all 0s.
     pub fn zero() -> Self {
         Self {
-            part_type_guid: PartitionType {
-                guid: uuid::Uuid::nil(),
-                os: "".to_string(),
-                description: "".to_string(),
-            },
+            part_type_guid: crate::partition_types::UNUSED,
             part_guid: uuid::Uuid::nil(),
             first_lba: 0,
             last_lba: 0,
@@ -71,7 +68,10 @@ impl Partition {
         let mut buf: Vec<u8> = Vec::with_capacity(entry_size as usize);
 
         // Type GUID.
-        let tyguid = self.part_type_guid.guid.as_fields();
+        let tyguid = uuid::Uuid::from_str(self.part_type_guid.guid).map_err(|e| {
+            Error::new(ErrorKind::Other, format!("Invalid guid: {}", e.to_string()))
+        })?;
+        let tyguid = tyguid.as_fields();
         buf.write_u32::<LittleEndian>(tyguid.0)?;
         buf.write_u16::<LittleEndian>(tyguid.1)?;
         buf.write_u16::<LittleEndian>(tyguid.2)?;
@@ -141,7 +141,7 @@ impl Partition {
 
     /// Check whether this partition is in use.
     pub fn is_used(&self) -> bool {
-        self.part_type_guid.guid != uuid::Uuid::nil()
+        self.part_type_guid.guid != crate::partition_types::UNUSED.guid
     }
 
     /// Return the number of sectors in the partition.
@@ -162,21 +162,20 @@ pub struct PartitionType {
     /// Type-GUID for a GPT partition.
     pub guid: uuid::Uuid,
     /// Optional well-known OS label for this type-GUID.
-    pub os: String,
+    pub os: OperatingSystem,
     /// Optional well-known description label for this type-GUID.
-    pub description: String,
+    pub description: Option<String>,
 }
 
 impl fmt::Display for Partition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Partition:\t\t{}\nPartition GUID:\t\t{}\nPartition Type:\t\t{}\t{}\n\
+            "Partition:\t\t{}\nPartition GUID:\t\t{}\nPartition Type:\t\t{}\n\
              Span:\t\t\t{} - {}\nFlags:\t\t\t{}",
             self.name,
             self.part_guid,
             self.part_type_guid.guid,
-            self.part_type_guid.description,
             self.first_lba,
             self.last_lba,
             self.flags
@@ -195,26 +194,6 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
     }
 
     Ok(String::from_utf16_lossy(&namebytes))
-}
-
-fn parse_parttype_guid(u: uuid::Uuid) -> PartitionType {
-    let s = u.to_hyphenated().to_string().to_uppercase();
-    debug!("looking up partition type, GUID {}", s);
-    match PART_HASHMAP.get(&s) {
-        Some(part_id) => PartitionType {
-            guid: u,
-            os: part_id.0.into(),
-            description: part_id.1.into(),
-        },
-        None => {
-            error!("Unknown partition type: {}", s);
-            PartitionType {
-                guid: u,
-                os: "".to_string(),
-                description: "".to_string(),
-            }
-        }
-    }
 }
 
 /// Read a GPT partition table.
@@ -267,14 +246,11 @@ pub(crate) fn file_read_partitions(
         let type_guid = parse_uuid(&mut reader)?;
         let part_guid = parse_uuid(&mut reader)?;
 
-        // Add unused partitions.  We will skip them later
-        //if part_guid.to_simple().to_string() == "00000000000000000000000000000000" {
-        //continue;
-        //}
-
         let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
         let p: Partition = Partition {
-            part_type_guid: parse_parttype_guid(type_guid),
+            part_type_guid: Type::from_uuid(&type_guid).map_err(|e| {
+                Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
+            })?,
             part_guid,
             first_lba: reader.read_u64::<LittleEndian>()?,
             last_lba: reader.read_u64::<LittleEndian>()?,

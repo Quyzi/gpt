@@ -47,7 +47,6 @@ fn test_gptdisk_linux_01() {
 
     let p1 = &gdisk.partitions()[0];
     assert_eq!(p1.name, "primary");
-    assert_eq!(p1.part_type_guid.description, "Linux Filesystem Data");
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_start, 0x22 * 512);
     let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
