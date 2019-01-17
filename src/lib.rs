@@ -20,7 +20,6 @@
 #![deny(missing_docs)]
 
 use bitflags;
-use lazy_static;
 use log::*;
 use std::cmp::Ordering;
 use std::io::Write;
@@ -30,7 +29,7 @@ pub mod disk;
 pub mod header;
 pub mod mbr;
 pub mod partition;
-mod partition_types;
+pub mod partition_types;
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
@@ -143,7 +142,7 @@ impl GptDisk {
         &mut self,
         name: &str,
         size: usize,
-        part_type: partition::PartitionType,
+        part_type: partition_types::Type,
         flags: u64,
     ) -> io::Result<()> {
         self.sort_partitions();
