@@ -133,16 +133,6 @@ impl Type {
     }
 }
 
-// partition_types! {
-//     /// unused
-//     (UNUSED, "00000000-0000-0000-0000-000000000000", OperatingSystem::None),
-//     /// MBR Partition Scheme
-//     (MBR, "024DEE41-33E7-11D3-9D69-0008C781F39F", OperatingSystem::None),
-//     /// EFI System Partition
-//     (EFI, "C12A7328-F81F-11D2-BA4B-00A0C93EC93B", OperatingSystem::None),
-//     /// BIOS Boot Partition
-//     (BIOS, "21686148-6449-6E6F-744E-656564454649", OperatingSystem::None),
-// }
 
 partition_types! {
     /// unused
@@ -249,8 +239,8 @@ partition_types! {
     (SOLARIS_SWAP, "6A87C46F-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris Backup Partition
     (SOLARIS_BACKUP, "6A8B642B-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
-    /// /Solaris usr Partition
-    (SOLARIS_USR, "6A898CC3-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
+// /// /Solaris usr Partition
+// (SOLARIS_USR, "6A898CC3-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris /var Partition
     (SOLARIS_VAR, "6A8EF2E9-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris /home Partition
