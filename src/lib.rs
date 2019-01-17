@@ -15,6 +15,19 @@
 //!     println!("Disk header: {:#?}", disk.primary_header());
 //!     println!("Partition layout: {:#?}", disk.partitions());
 //! }
+//!
+//! fn create_partition() {
+//!     let diskpath = std::path::Path::new("/tmp/chris.img");
+//!     let cfg = gpt::GptConfig::new().writable(true).initialized(true);
+//!     let mut disk = cfg.open(diskpath).expect("failed to open disk");
+//!     let result = disk.add_partition(
+//!         "rust_partition",
+//!         100,
+//!         gpt::partition_types::LINUX_FS,
+//!         0,
+//!     );
+//!     disk.write().unwrap();
+//! }
 //! ```
 
 #![deny(missing_docs)]

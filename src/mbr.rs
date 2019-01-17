@@ -3,8 +3,8 @@
 //! This module provides access to low-level primitives
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crate::disk;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io};
 

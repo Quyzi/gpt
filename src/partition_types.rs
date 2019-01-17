@@ -1,6 +1,6 @@
 //! Parition type constants
-use std::str::FromStr;
 use log::debug;
+use std::str::FromStr;
 
 /// The type
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,7 +101,7 @@ macro_rules! partition_types {
                 os: $os,
             };
         )+
-        
+
         impl FromStr for Type {
             type Err = String;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -132,7 +132,6 @@ impl Type {
         Type::from_str(&uuid_str)
     }
 }
-
 
 partition_types! {
     /// unused
