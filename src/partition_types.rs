@@ -109,7 +109,7 @@ macro_rules! partition_types {
                     $(
                         $guid => Ok(Type { guid: $guid, os: $os }),
                     )+
-                    _ => Err("Invalid.".to_string()),
+                    _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
                 }
             }
         }
