@@ -32,7 +32,6 @@
 
 #![deny(missing_docs)]
 
-use bitflags;
 use log::*;
 use std::cmp::Ordering;
 use std::io::Write;
@@ -151,18 +150,32 @@ pub struct GptDisk {
 impl GptDisk {
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
+    /// Returns the new partition id if there was sufficient room
+    /// to add the partition. Size is specified in bytes.
     pub fn add_partition(
         &mut self,
         name: &str,
         size: usize,
         part_type: partition_types::Type,
         flags: u64,
-    ) -> io::Result<()> {
+    ) -> io::Result<u32> {
+        let size_lba = match size.checked_div(self.config.lb_size.into()) {
+            Some(s) => s,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!(
+                        "size must be greater than {} which is the logical block size.",
+                        self.config.lb_size
+                    ),
+                ));
+            }
+        };
         self.sort_partitions();
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
-            if length as usize >= size {
+            if length as usize >= size_lba {
                 // Found our free slice.
                 let partition_id = self.find_next_partition_id();
                 debug!(
@@ -170,19 +183,19 @@ impl GptDisk {
                     partition_id,
                     part_type,
                     starting_lba,
-                    starting_lba + size as u64
+                    starting_lba + size_lba as u64
                 );
                 let part = partition::Partition {
                     part_type_guid: part_type,
                     part_guid: uuid::Uuid::new_v4(),
                     first_lba: starting_lba,
-                    last_lba: starting_lba + size as u64,
+                    last_lba: starting_lba + size_lba as u64,
                     flags,
                     name: name.to_string(),
                     id: partition_id,
                 };
                 self.partitions.push(part);
-                return Ok(());
+                return Ok(partition_id);
             }
         }
 
