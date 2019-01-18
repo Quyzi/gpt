@@ -1,7 +1,7 @@
 //! Disk-related types and helper functions.
 
 use super::{GptConfig, GptDisk};
-use std::{io, path};
+use std::{fmt, io, path};
 
 /// Default size of a logical sector (bytes).
 pub const DEFAULT_SECTOR_SIZE: LogicalBlockSize = LogicalBlockSize::Lb512;
@@ -20,6 +20,24 @@ impl Into<u64> for LogicalBlockSize {
         match self {
             LogicalBlockSize::Lb512 => 512,
             LogicalBlockSize::Lb4096 => 4096,
+        }
+    }
+}
+
+impl Into<usize> for LogicalBlockSize {
+    fn into(self) -> usize {
+        match self {
+            LogicalBlockSize::Lb512 => 512,
+            LogicalBlockSize::Lb4096 => 4096,
+        }
+    }
+}
+
+impl fmt::Display for LogicalBlockSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LogicalBlockSize::Lb512 => write!(f, "512"),
+            LogicalBlockSize::Lb4096 => write!(f, "1096"),
         }
     }
 }
