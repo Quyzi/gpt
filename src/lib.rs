@@ -155,7 +155,7 @@ impl GptDisk {
     pub fn add_partition(
         &mut self,
         name: &str,
-        size: usize,
+        size: u64,
         part_type: partition_types::Type,
         flags: u64,
     ) -> io::Result<u32> {
@@ -175,7 +175,7 @@ impl GptDisk {
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
-            if length as usize >= size_lba {
+            if length >= size_lba {
                 // Found our free slice.
                 let partition_id = self.find_next_partition_id();
                 debug!(
