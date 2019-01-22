@@ -1,8 +1,7 @@
 
 #[macro_use]
-pub mod macros {
+pub(crate) mod crate_macros {
     /// Macro to read an exact buffer
-    #[macro_export]
     macro_rules! read_exact_buff {
         ($bufid:ident, $rdr:expr, $buflen:expr) => {
             {
