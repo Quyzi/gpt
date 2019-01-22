@@ -4,7 +4,6 @@
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
 use crate::disk;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io};
 
@@ -73,7 +72,7 @@ impl ProtectiveMBR {
 
         pmbr.bootcode.copy_from_slice(&buf[0..440]);
         pmbr.disk_signature.copy_from_slice(&buf[440..444]);
-        pmbr.unknown = (&buf[444..446]).read_u16::<LittleEndian>()?;
+        pmbr.unknown = u16::from_le_bytes( read_exact_buff!(pmbru, &buf[444..446], 2) );
 
         for (i, p) in pmbr.partitions.iter_mut().enumerate() {
             let start = i
@@ -126,7 +125,7 @@ impl ProtectiveMBR {
 
         buf.write_all(&self.bootcode)?;
         buf.write_all(&self.disk_signature)?;
-        buf.write_u16::<LittleEndian>(self.unknown)?;
+        buf.write_all(&self.unknown.to_le_bytes())?;
         for p in &self.partitions {
             let pdata = p.as_bytes()?;
             buf.write_all(&pdata)?;
@@ -263,8 +262,8 @@ impl PartRecord {
             end_head: buf[5],
             end_sector: buf[6],
             end_track: buf[7],
-            lb_start: (&buf[8..12]).read_u32::<LittleEndian>()?,
-            lb_size: (&buf[12..16]).read_u32::<LittleEndian>()?,
+            lb_start: u32::from_le_bytes( read_exact_buff!(lbs, &buf[8..12], 4)),
+            lb_size: u32::from_le_bytes(read_exact_buff!(lbsize, &buf[12..16], 4) ),
         };
         Ok(pr)
     }
@@ -273,20 +272,20 @@ impl PartRecord {
     pub fn as_bytes(&self) -> io::Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(16);
 
-        buf.write_u8(self.boot_indicator)?;
+        buf.write_all(&self.boot_indicator.to_le_bytes())?;
 
-        buf.write_u8(self.start_head)?;
-        buf.write_u8(self.start_sector)?;
-        buf.write_u8(self.start_track)?;
+        buf.write_all(&self.start_head.to_le_bytes())?;
+        buf.write_all(&self.start_sector.to_le_bytes())?;
+        buf.write_all(&self.start_track.to_le_bytes())?;
 
-        buf.write_u8(self.os_type)?;
+        buf.write_all(&self.os_type.to_le_bytes())?;
 
-        buf.write_u8(self.end_head)?;
-        buf.write_u8(self.end_sector)?;
-        buf.write_u8(self.end_track)?;
+        buf.write_all(&self.end_head.to_le_bytes())?;
+        buf.write_all(&self.end_sector.to_le_bytes())?;
+        buf.write_all(&self.end_track.to_le_bytes())?;
 
-        buf.write_u32::<LittleEndian>(self.lb_start)?;
-        buf.write_u32::<LittleEndian>(self.lb_size)?;
+        buf.write_all(&self.lb_start.to_le_bytes())?;
+        buf.write_all(&self.lb_size.to_le_bytes())?;
 
         Ok(buf)
     }

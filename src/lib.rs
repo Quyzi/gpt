@@ -37,6 +37,7 @@ use std::cmp::Ordering;
 use std::io::Write;
 use std::{fs, io, path};
 
+#[macro_use] mod macros;
 pub mod disk;
 pub mod header;
 pub mod mbr;

@@ -1,7 +1,5 @@
 use gpt;
 
-
-
 use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::io;
 

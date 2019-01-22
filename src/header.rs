@@ -1,6 +1,5 @@
 //! GPT-header object and helper functions.
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc::{crc32, Hasher32};
 use log::*;
 use std::fmt;
@@ -161,27 +160,27 @@ impl Header {
         let disk_guid_fields = self.disk_guid.as_fields();
 
         buff.write_all(self.signature.as_bytes())?;
-        buff.write_u32::<LittleEndian>(self.revision)?;
-        buff.write_u32::<LittleEndian>(self.header_size_le)?;
+        buff.write_all(&self.revision.to_le_bytes())?;
+        buff.write_all(&self.header_size_le.to_le_bytes())?;
         match header_checksum {
-            Some(c) => buff.write_u32::<LittleEndian>(c)?,
-            None => buff.write_u32::<LittleEndian>(0)?,
+            Some(c) => buff.write_all(&c.to_le_bytes())?,
+            None => buff.write_all(&[0; 4])?,
         };
-        buff.write_u32::<LittleEndian>(0)?;
-        buff.write_u64::<LittleEndian>(self.current_lba)?;
-        buff.write_u64::<LittleEndian>(self.backup_lba)?;
-        buff.write_u64::<LittleEndian>(self.first_usable)?;
-        buff.write_u64::<LittleEndian>(self.last_usable)?;
-        buff.write_u32::<LittleEndian>(disk_guid_fields.0)?;
-        buff.write_u16::<LittleEndian>(disk_guid_fields.1)?;
-        buff.write_u16::<LittleEndian>(disk_guid_fields.2)?;
-        buff.write_all(disk_guid_fields.3)?; // May need to be written in reverse
-        buff.write_u64::<LittleEndian>(self.part_start)?;
-        buff.write_u32::<LittleEndian>(self.num_parts)?;
-        buff.write_u32::<LittleEndian>(self.part_size)?;
+        buff.write_all(&[0; 4])?;
+        buff.write_all(&self.current_lba.to_le_bytes())?;
+        buff.write_all(&self.backup_lba.to_le_bytes())?;
+        buff.write_all(&self.first_usable.to_le_bytes())?;
+        buff.write_all(&self.last_usable.to_le_bytes())?;
+        buff.write_all(&disk_guid_fields.0.to_le_bytes())?;
+        buff.write_all(&disk_guid_fields.1.to_le_bytes())?;
+        buff.write_all(&disk_guid_fields.2.to_le_bytes())?;
+        buff.write_all(disk_guid_fields.3)?;
+        buff.write_all(&self.part_start.to_le_bytes())?;
+        buff.write_all(&self.num_parts.to_le_bytes())?;
+        buff.write_all(&self.part_size.to_le_bytes())?;
         match partitions_checksum {
-            Some(c) => buff.write_u32::<LittleEndian>(c)?,
-            None => buff.write_u32::<LittleEndian>(0)?,
+            Some(c) => buff.write_all(&c.to_le_bytes())?,
+            None => buff.write_all(&[0; 4])?,
         };
         Ok(buff)
     }
@@ -189,9 +188,19 @@ impl Header {
 
 /// Parses a uuid with first 3 portions in little endian.
 pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
-    let d1: u32 = rdr.read_u32::<LittleEndian>()?;
-    let d2: u16 = rdr.read_u16::<LittleEndian>()?;
-    let d3: u16 = rdr.read_u16::<LittleEndian>()?;
+    // let mut buffd1 = [0; 4];
+    // let _ = rdr.read_exact(&mut buffd1)?; 
+    // let mut buffd2 = [0; 2];
+    // let _ = rdr.read_exact(&mut buffd2)?;
+    // let mut buffd3 = [0; 2];
+    // let _ = rdr.read_exact(&mut buffd3)?;
+    
+    //let d1: u32 = u32::from_le_bytes(buffd1);
+    // let b = rdr.take(4).bytes().collect::<Vec<u8>>();
+    //let d1: u32 = u32::from_le_bytes(rdr.take(4).bytes().collect::<[u8;4]>()?);
+    let d1: u32 = u32::from_le_bytes(read_exact_buff!(d1b, rdr, 4));
+    let d2: u16 = u16::from_le_bytes(read_exact_buff!(d2b, rdr, 2));
+    let d3: u16 = u16::from_le_bytes(read_exact_buff!(d3b, rdr, 2));
     let uuid = uuid::Uuid::from_fields(
         d1,
         d2,
@@ -276,19 +285,20 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
 
     let h = Header {
         signature: sigstr.to_string(),
-        revision: reader.read_u32::<LittleEndian>()?,
-        header_size_le: reader.read_u32::<LittleEndian>()?,
-        crc32: reader.read_u32::<LittleEndian>()?,
-        reserved: reader.read_u32::<LittleEndian>()?,
-        current_lba: reader.read_u64::<LittleEndian>()?,
-        backup_lba: reader.read_u64::<LittleEndian>()?,
-        first_usable: reader.read_u64::<LittleEndian>()?,
-        last_usable: reader.read_u64::<LittleEndian>()?,
+        // revision: reader.read_u32::<LittleEndian>()?,
+        revision: u32::from_le_bytes( read_exact_buff!(rev, reader, 4) ),
+        header_size_le: u32::from_le_bytes( read_exact_buff!(hsle, reader, 4) ),
+        crc32: u32::from_le_bytes( read_exact_buff!(crc32, reader, 4) ),
+        reserved: u32::from_le_bytes( read_exact_buff!(reserv, reader, 4) ),
+        current_lba: u64::from_le_bytes( read_exact_buff!(clba, reader, 8) ),
+        backup_lba: u64::from_le_bytes( read_exact_buff!(blba, reader, 8) ),
+        first_usable: u64::from_le_bytes( read_exact_buff!(fusable, reader, 8) ),
+        last_usable: u64::from_le_bytes( read_exact_buff!(lusable, reader, 8) ),
         disk_guid: parse_uuid(&mut reader)?,
-        part_start: reader.read_u64::<LittleEndian>()?,
-        num_parts: reader.read_u32::<LittleEndian>()?,
-        part_size: reader.read_u32::<LittleEndian>()?,
-        crc32_parts: reader.read_u32::<LittleEndian>()?,
+        part_start: u64::from_le_bytes( read_exact_buff!(pstart, reader, 8) ),
+        num_parts: u32::from_le_bytes( read_exact_buff!(nparts, reader, 4) ),
+        part_size: u32::from_le_bytes( read_exact_buff!(partsize, reader, 4) ),
+        crc32_parts: u32::from_le_bytes( read_exact_buff!(crc32parts, reader, 4) ),
     };
     trace!("header: {:?}", &hdr[..]);
     trace!("header gpt: {}", h.disk_guid.to_hyphenated().to_string());
@@ -392,3 +402,4 @@ pub fn write_header(
 
     Ok(guid)
 }
+
