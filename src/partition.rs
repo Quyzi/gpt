@@ -251,12 +251,9 @@ pub(crate) fn file_read_partitions(
                 Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
             })?,
             part_guid,
-            // first_lba: reader.read_u64::<LittleEndian>()?,
-            first_lba: u64::from_le_bytes( read_exact_buff!(flba, reader, 8) ),
-            // last_lba: reader.read_u64::<LittleEndian>()?,
-            last_lba: u64::from_le_bytes( read_exact_buff!(llba, reader, 8) ),
-            // flags: reader.read_u64::<LittleEndian>()?,
-            flags: u64::from_le_bytes( read_exact_buff!(flagbuff, reader, 8) ),
+            first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
+            last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
+            flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
             name: partname.to_string(),
             id: i,
         };

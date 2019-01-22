@@ -188,16 +188,6 @@ impl Header {
 
 /// Parses a uuid with first 3 portions in little endian.
 pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
-    // let mut buffd1 = [0; 4];
-    // let _ = rdr.read_exact(&mut buffd1)?; 
-    // let mut buffd2 = [0; 2];
-    // let _ = rdr.read_exact(&mut buffd2)?;
-    // let mut buffd3 = [0; 2];
-    // let _ = rdr.read_exact(&mut buffd3)?;
-    
-    //let d1: u32 = u32::from_le_bytes(buffd1);
-    // let b = rdr.take(4).bytes().collect::<Vec<u8>>();
-    //let d1: u32 = u32::from_le_bytes(rdr.take(4).bytes().collect::<[u8;4]>()?);
     let d1: u32 = u32::from_le_bytes(read_exact_buff!(d1b, rdr, 4));
     let d2: u16 = u16::from_le_bytes(read_exact_buff!(d2b, rdr, 2));
     let d3: u16 = u16::from_le_bytes(read_exact_buff!(d3b, rdr, 2));
@@ -285,7 +275,6 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
 
     let h = Header {
         signature: sigstr.to_string(),
-        // revision: reader.read_u32::<LittleEndian>()?,
         revision: u32::from_le_bytes( read_exact_buff!(rev, reader, 4) ),
         header_size_le: u32::from_le_bytes( read_exact_buff!(hsle, reader, 4) ),
         crc32: u32::from_le_bytes( read_exact_buff!(crc32, reader, 4) ),

@@ -72,7 +72,7 @@ impl ProtectiveMBR {
 
         pmbr.bootcode.copy_from_slice(&buf[0..440]);
         pmbr.disk_signature.copy_from_slice(&buf[440..444]);
-        pmbr.unknown = u16::from_le_bytes( read_exact_buff!(pmbru, &buf[444..446], 2) );
+        pmbr.unknown = u16::from_le_bytes(read_exact_buff!(pmbru, &buf[444..446], 2));
 
         for (i, p) in pmbr.partitions.iter_mut().enumerate() {
             let start = i
@@ -262,7 +262,7 @@ impl PartRecord {
             end_head: buf[5],
             end_sector: buf[6],
             end_track: buf[7],
-            lb_start: u32::from_le_bytes( read_exact_buff!(lbs, &buf[8..12], 4)),
+            lb_start: u32::from_le_bytes(read_exact_buff!(lbs, &buf[8..12], 4)),
             lb_size: u32::from_le_bytes(read_exact_buff!(lbsize, &buf[12..16], 4) ),
         };
         Ok(pr)
