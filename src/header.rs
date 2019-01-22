@@ -164,7 +164,7 @@ impl Header {
         buff.write_all(&self.header_size_le.to_le_bytes())?;
         match header_checksum {
             Some(c) => buff.write_all(&c.to_le_bytes())?,
-            None => buff.write_all(&[0; 4])?,
+            None => buff.write_all(&[0u8; 4])?,
         };
         buff.write_all(&[0; 4])?;
         buff.write_all(&self.current_lba.to_le_bytes())?;
@@ -180,7 +180,7 @@ impl Header {
         buff.write_all(&self.part_size.to_le_bytes())?;
         match partitions_checksum {
             Some(c) => buff.write_all(&c.to_le_bytes())?,
-            None => buff.write_all(&[0; 4])?,
+            None => buff.write_all(&[0u8; 4])?,
         };
         Ok(buff)
     }
