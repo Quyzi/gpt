@@ -12,4 +12,33 @@ pub mod macros {
             }
         }
     }
+
+    macro_rules! partition_types {
+    (
+        $(
+            $(#[$docs:meta])*
+            ($upcase:ident, $guid:expr, $os:expr)$(,)*
+        )+
+    ) => {
+        $(
+            $(#[$docs])*
+            pub const $upcase: Type = Type {
+                guid: $guid,
+                os: $os,
+            };
+        )+
+
+        impl FromStr for Type {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $(
+                        $guid => Ok(Type { guid: $guid, os: $os }),
+                    )+
+                    _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
+                }
+            }
+        }
+    }
+}
 }
