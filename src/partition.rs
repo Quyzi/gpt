@@ -4,7 +4,6 @@
 //! to work with GPT partitions.
 
 use bitflags::*;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc::crc32;
 use log::*;
 use std::fmt;
@@ -72,26 +71,26 @@ impl Partition {
             Error::new(ErrorKind::Other, format!("Invalid guid: {}", e.to_string()))
         })?;
         let tyguid = tyguid.as_fields();
-        buf.write_u32::<LittleEndian>(tyguid.0)?;
-        buf.write_u16::<LittleEndian>(tyguid.1)?;
-        buf.write_u16::<LittleEndian>(tyguid.2)?;
+        buf.write_all(&tyguid.0.to_le_bytes())?;
+        buf.write_all(&tyguid.1.to_le_bytes())?;
+        buf.write_all(&tyguid.2.to_le_bytes())?;
         buf.write_all(tyguid.3)?;
 
         // Partition GUID.
         let pguid = self.part_guid.as_fields();
-        buf.write_u32::<LittleEndian>(pguid.0)?;
-        buf.write_u16::<LittleEndian>(pguid.1)?;
-        buf.write_u16::<LittleEndian>(pguid.2)?;
+        buf.write_all(&pguid.0.to_le_bytes())?;
+        buf.write_all(&pguid.1.to_le_bytes())?;
+        buf.write_all(&pguid.2.to_le_bytes())?;
         buf.write_all(pguid.3)?;
 
         // LBAs and flags.
-        buf.write_u64::<LittleEndian>(self.first_lba)?;
-        buf.write_u64::<LittleEndian>(self.last_lba)?;
-        buf.write_u64::<LittleEndian>(self.flags)?;
+        buf.write_all(&self.first_lba.to_le_bytes())?;
+        buf.write_all(&self.last_lba.to_le_bytes())?;
+        buf.write_all(&self.flags.to_le_bytes())?;
 
         // Partition name as UTF16-LE.
         for utf16_char in self.name.encode_utf16().take(36) {
-            buf.write_u16::<LittleEndian>(utf16_char)?;
+            buf.write_all(&utf16_char.to_le_bytes())?; // TODO: Check this
         }
 
         // Resize buffer to exact entry size.
@@ -187,7 +186,7 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
     trace!("Reading partition name");
     let mut namebytes: Vec<u16> = Vec::new();
     for _ in 0..36 {
-        let b = rdr.read_u16::<LittleEndian>()?;
+        let b = u16::from_le_bytes(read_exact_buff!(bbuff, rdr, 2));
         if b != 0 {
             namebytes.push(b);
         }
@@ -252,9 +251,9 @@ pub(crate) fn file_read_partitions(
                 Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
             })?,
             part_guid,
-            first_lba: reader.read_u64::<LittleEndian>()?,
-            last_lba: reader.read_u64::<LittleEndian>()?,
-            flags: reader.read_u64::<LittleEndian>()?,
+            first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
+            last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
+            flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
             name: partname.to_string(),
             id: i,
         };

@@ -87,35 +87,6 @@ impl FromStr for OperatingSystem {
     }
 }
 
-macro_rules! partition_types {
-    (
-        $(
-            $(#[$docs:meta])*
-            ($upcase:ident, $guid:expr, $os:expr)$(,)*
-        )+
-    ) => {
-        $(
-            $(#[$docs])*
-            pub const $upcase: Type = Type {
-                guid: $guid,
-                os: $os,
-            };
-        )+
-
-        impl FromStr for Type {
-            type Err = String;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    $(
-                        $guid => Ok(Type { guid: $guid, os: $os }),
-                    )+
-                    _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
-                }
-            }
-        }
-    }
-}
-
 #[test]
 fn test_partition_fromstr() {
     let p = "0FC63DAF-8483-4772-8E79-3D69D8477DE4";
@@ -238,8 +209,6 @@ partition_types! {
     (SOLARIS_SWAP, "6A87C46F-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris Backup Partition
     (SOLARIS_BACKUP, "6A8B642B-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
-// /// /Solaris usr Partition
-// (SOLARIS_USR, "6A898CC3-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris /var Partition
     (SOLARIS_VAR, "6A8EF2E9-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris /home Partition
