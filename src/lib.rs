@@ -33,11 +33,12 @@
 #![deny(missing_docs)]
 
 use log::*;
-use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::{fs, io, path};
 
-#[macro_use] mod macros;
+#[macro_use]
+mod macros;
 pub mod disk;
 pub mod header;
 pub mod mbr;
@@ -99,7 +100,7 @@ impl GptConfig {
                 path: diskpath.to_path_buf(),
                 primary_header: None,
                 backup_header: None,
-                partitions: vec![],
+                partitions: BTreeMap::new(),
             };
             return Ok(empty);
         }
@@ -145,7 +146,7 @@ pub struct GptDisk {
     path: path::PathBuf,
     primary_header: Option<header::Header>,
     backup_header: Option<header::Header>,
-    partitions: Vec<partition::Partition>,
+    partitions: BTreeMap<u32, partition::Partition>,
 }
 
 impl GptDisk {
@@ -172,7 +173,6 @@ impl GptDisk {
                 ));
             }
         };
-        self.sort_partitions();
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
@@ -193,9 +193,10 @@ impl GptDisk {
                     last_lba: starting_lba + size_lba as u64,
                     flags,
                     name: name.to_string(),
-                    id: partition_id,
                 };
-                self.partitions.push(part);
+                if let Some(p) = self.partitions.insert(partition_id, part.clone()) {
+                    debug!("Replacing\n{}\nwith\n{}", p, part);
+                }
                 return Ok(partition_id);
             }
         }
@@ -212,10 +213,10 @@ impl GptDisk {
         if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
             trace!("first_usable: {}", header.first_usable);
             let mut disk_positions = vec![header.first_usable + 1];
-            for part in self.partitions().iter().filter(|p| p.is_used()) {
-                trace!("partition: ({}, {})", part.first_lba, part.last_lba);
-                disk_positions.push(part.first_lba);
-                disk_positions.push(part.last_lba);
+            for part in self.partitions().iter().filter(|p| p.1.is_used()) {
+                trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
+                disk_positions.push(part.1.first_lba);
+                disk_positions.push(part.1.last_lba);
             }
             disk_positions.push(header.last_usable - 1);
             trace!("last_usable: {}", header.last_usable);
@@ -238,12 +239,13 @@ impl GptDisk {
             .partitions()
             .iter()
             // Skip unused partitions.
-            .filter(|p| p.is_used())
-            // Find the maximum id that isn't used.
-            .max_by(|x, y| x.id.cmp(&y.id))
+            .filter(|p| p.1.is_used())
+            // Find the maximum id.
+            .max_by_key(|x| x.0)
         {
-            Some(i) => i.id + 1,
-            None => 0,
+            Some(i) => i.0 + 1,
+            // Partitions start at 1.
+            None => 1,
         }
     }
 
@@ -258,7 +260,7 @@ impl GptDisk {
     }
 
     /// Retrieve partition entries.
-    pub fn partitions(&self) -> &[partition::Partition] {
+    pub fn partitions(&self) -> &BTreeMap<u32, partition::Partition> {
         &self.partitions
     }
 
@@ -272,6 +274,7 @@ impl GptDisk {
         &self.config.lb_size
     }
 
+    /*
     /// Sort the partitions by their starting LBA.  Takes into
     /// account unused partitions.
     pub fn sort_partitions(&mut self) {
@@ -283,6 +286,7 @@ impl GptDisk {
                 (false, false) => Ordering::Equal,
             });
     }
+    */
 
     /// Update disk UUID.
     ///
@@ -304,7 +308,10 @@ impl GptDisk {
     /// Update current partition table.
     ///
     /// No changes are recorded to disk until `write()` is called.
-    pub fn update_partitions(&mut self, pp: Vec<partition::Partition>) -> io::Result<&Self> {
+    pub fn update_partitions(
+        &mut self,
+        pp: BTreeMap<u32, partition::Partition>,
+    ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         let h1 = header::Header::compute_new(true, &pp, self.guid, bak)?;
@@ -336,11 +343,10 @@ impl GptDisk {
         trace!("old backup header: {:?}", self.backup_header);
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
-        // Sort so we're not seeking all over the place.
-        self.sort_partitions();
-        for partition in self.partitions().iter().filter(|p| p.is_used()) {
-            partition.write(
+        for partition in self.partitions().iter().filter(|p| p.1.is_used()) {
+            partition.1.write(
                 &self.path,
+                u64::from(partition.0.checked_sub(1).unwrap_or_else(|| 0)),
                 self.primary_header.clone().unwrap().part_start,
                 self.config.lb_size,
             )?;

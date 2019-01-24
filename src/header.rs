@@ -2,6 +2,7 @@
 
 use crc::{crc32, Hasher32};
 use log::*;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
@@ -47,7 +48,7 @@ pub struct Header {
 impl Header {
     pub(crate) fn compute_new(
         primary: bool,
-        pp: &[partition::Partition],
+        pp: &BTreeMap<u32, partition::Partition>,
         guid: uuid::Uuid,
         backup_offset: u64,
     ) -> Result<Self> {
@@ -73,7 +74,7 @@ impl Header {
             last_usable: last,
             disk_guid: guid,
             part_start: 2,
-            num_parts: pp.iter().filter(|p| p.is_used()).count() as u32,
+            num_parts: pp.iter().filter(|p| p.1.is_used()).count() as u32,
             part_size: 128,
             crc32_parts: 0,
         };
@@ -385,7 +386,7 @@ pub fn write_header(
         }
     };
 
-    let hdr = Header::compute_new(true, &[], guid, bak)?;
+    let hdr = Header::compute_new(true, &BTreeMap::new(), guid, bak)?;
     debug!("new header: {:#?}", hdr);
     hdr.write_primary(&mut file, sector_size)?;
 

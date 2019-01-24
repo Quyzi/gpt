@@ -6,6 +6,7 @@
 use bitflags::*;
 use crc::crc32;
 use log::*;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
@@ -44,8 +45,6 @@ pub struct Partition {
     pub flags: u64,
     /// Partition name.
     pub name: String,
-    /// The partition id number
-    pub id: u32,
 }
 
 impl Partition {
@@ -58,7 +57,6 @@ impl Partition {
             last_lba: 0,
             flags: 0,
             name: "".to_string(),
-            id: 0,
         }
     }
 
@@ -100,14 +98,20 @@ impl Partition {
     }
 
     /// Write the partition entry to the partitions area and update crc32 for the Header.
-    pub fn write(&self, p: &Path, start_lba: u64, lb_size: disk::LogicalBlockSize) -> Result<()> {
+    pub fn write(
+        &self,
+        p: &Path,
+        partition_id: u64,
+        start_lba: u64,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<()> {
         debug!("writing partition to: {}", p.display());
         let pstart = start_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let mut file = OpenOptions::new().write(true).read(true).open(p)?;
         // The offset is 128 * partition_id
-        let offset = u64::from(self.id)
+        let offset = partition_id
             .checked_mul(128)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to partition start: {}", pstart + offset);
@@ -177,7 +181,7 @@ impl fmt::Display for Partition {
             self.part_type_guid.guid,
             self.first_lba,
             self.last_lba,
-            self.flags
+            self.flags,
         )
     }
 }
@@ -213,7 +217,7 @@ pub fn read_partitions(
     path: &Path,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
-) -> Result<Vec<Partition>> {
+) -> Result<BTreeMap<u32, Partition>> {
     debug!("reading partitions from file: {}", path.display());
     let mut file = File::open(path)?;
     file_read_partitions(&mut file, header, lb_size)
@@ -224,14 +228,14 @@ pub(crate) fn file_read_partitions(
     file: &mut File,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
-) -> Result<Vec<Partition>> {
+) -> Result<BTreeMap<u32, Partition>> {
     let pstart = header
         .part_start
         .checked_mul(lb_size.into())
         .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
     trace!("seeking to partitions start: {:#x}", pstart);
     let _ = file.seek(SeekFrom::Start(pstart))?;
-    let mut parts: Vec<Partition> = Vec::new();
+    let mut parts: BTreeMap<u32, Partition> = BTreeMap::new();
 
     trace!("scanning {} partitions", header.num_parts);
     for i in 0..header.num_parts {
@@ -246,7 +250,7 @@ pub(crate) fn file_read_partitions(
         let part_guid = parse_uuid(&mut reader)?;
 
         let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
-        let p: Partition = Partition {
+        let p = Partition {
             part_type_guid: Type::from_uuid(&type_guid).map_err(|e| {
                 Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
             })?,
@@ -255,10 +259,9 @@ pub(crate) fn file_read_partitions(
             last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
             flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
             name: partname.to_string(),
-            id: i,
         };
 
-        parts.push(p);
+        parts.insert(i + 1, p);
     }
 
     debug!("checking partition table CRC");
