@@ -274,20 +274,6 @@ impl GptDisk {
         &self.config.lb_size
     }
 
-    /*
-    /// Sort the partitions by their starting LBA.  Takes into
-    /// account unused partitions.
-    pub fn sort_partitions(&mut self) {
-        self.partitions
-            .sort_by(|a, b| match (a.is_used(), b.is_used()) {
-                (true, true) => a.first_lba.cmp(&b.first_lba),
-                (true, false) => Ordering::Less,
-                (false, true) => Ordering::Greater,
-                (false, false) => Ordering::Equal,
-            });
-    }
-    */
-
     /// Update disk UUID.
     ///
     /// If no UUID is specified, a new random one is generated.
