@@ -1,5 +1,5 @@
 //! Parition type constants
-use log::debug;
+use log::trace;
 use std::str::FromStr;
 
 /// The type
@@ -99,7 +99,7 @@ impl Type {
     /// Lookup a partition type by uuid
     pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, String> {
         let uuid_str = u.to_hyphenated().to_string().to_uppercase();
-        debug!("looking up partition type guid {}", uuid_str);
+        trace!("looking up partition type guid {}", uuid_str);
         Type::from_str(&uuid_str)
     }
 }

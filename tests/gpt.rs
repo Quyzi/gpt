@@ -45,7 +45,7 @@ fn test_gptdisk_linux_01() {
     assert_eq!(h2.current_lba, 95);
     assert_eq!(h2.backup_lba, 1);
 
-    let p1 = &gdisk.partitions()[0];
+    let p1 = &gdisk.partitions().get(&1_u32).unwrap();
     assert_eq!(p1.name, "primary");
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_start, 0x22 * 512);

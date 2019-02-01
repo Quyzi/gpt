@@ -38,7 +38,6 @@ fn test_read_header() {
         last_lba: 62,
         flags: 0,
         name: "primary".to_string(),
-        id: 0,
     };
 
     let diskpath = Path::new("tests/fixtures/gpt-linux-disk-01.img");
@@ -49,7 +48,7 @@ fn test_read_header() {
 
     let p = read_partitions(diskpath, &h, disk::DEFAULT_SECTOR_SIZE).unwrap();
     println!("Partitions: {:?}", p);
-    assert_eq!(p[0], expected_partition);
+    assert_eq!(*p.get(&1).unwrap(), expected_partition);
 }
 
 #[test]
@@ -81,8 +80,7 @@ fn test_write_header() {
         last_lba: 40,
         flags: 0,
         name: "gpt test".to_string(),
-        id: 0,
     };
-    p.write(tempdisk.path(), h.part_start, disk::DEFAULT_SECTOR_SIZE)
+    p.write(tempdisk.path(), 0, h.part_start, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
 }
