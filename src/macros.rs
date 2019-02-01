@@ -33,7 +33,7 @@ pub(crate) mod crate_macros {
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
                     $(
-                        $guid => Ok(Type { guid: $guid, os: $os }),
+                        $guid => Ok($upcase),
                     )+
                     _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
                 }

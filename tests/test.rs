@@ -84,3 +84,11 @@ fn test_write_header() {
     p.write(tempdisk.path(), 0, h.part_start, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
 }
+
+
+#[test]
+fn test_partition_type_fromstr() {
+    assert_eq!(gpt::partition_types::Type::from_str("933AC7E1-2EB4-4F13-B844-0E14E2AEF915").unwrap(), gpt::partition_types::LINUX_HOME);
+    assert_eq!(gpt::partition_types::Type::from_str("114EAFFE-1552-4022-B26E-9B053604CF84").unwrap(), gpt::partition_types::ANDROID_BOOTLOADER2);
+    assert_eq!(gpt::partition_types::Type::from_str("00000000-0000-0000-0000-000000000000").unwrap(), gpt::partition_types::UNUSED);
+}
