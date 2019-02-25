@@ -16,7 +16,7 @@ use uuid;
 
 use crate::disk;
 use crate::header::{parse_uuid, Header};
-use crate::partition_types::{OperatingSystem, Type};
+use crate::partition_types::Type;
 
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
@@ -157,17 +157,6 @@ impl Partition {
             )),
         }
     }
-}
-
-/// Partition type, with optional description.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PartitionType {
-    /// Type-GUID for a GPT partition.
-    pub guid: uuid::Uuid,
-    /// Optional well-known OS label for this type-GUID.
-    pub os: OperatingSystem,
-    /// Optional well-known description label for this type-GUID.
-    pub description: Option<String>,
 }
 
 impl fmt::Display for Partition {
