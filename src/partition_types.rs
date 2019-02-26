@@ -201,6 +201,8 @@ partition_types! {
     (MACOS_SOFTRAID_VOLUME, "FA709C7E-65B1-4593-BFD5-E71D61DE9B02", OperatingSystem::MacOs),
     /// Apple SOftRAID_Cache
     (MACOS_SOFTRAID_CACHE, "BBBA6DF5-F46F-4A89-8F59-8765B2727503", OperatingSystem::MacOs),
+    /// Apple APFS
+    (MACOS_APFS, "7C3457EF-0000-11AA-AA11-00306543ECAC", OperatingSystem::MacOs),
     /// Solaris Boot Partition
     (SOLARIS_BOOT, "6A82CB45-1DD2-11B2-99A6-080020736631", OperatingSystem::Solaris),
     /// Solaris Root Partition
