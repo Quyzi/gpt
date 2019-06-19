@@ -9,7 +9,7 @@ homepage = "https://github.com/Quyzi/gpt"
 edition = "2018"
 
 [dependencies]
-bitflags = "~1.0"
+bitflags = "~1.1"
 crc = "~1.8"
 log = "~0.4"
 uuid = { version = "~0.7", features = ["v4"] }
