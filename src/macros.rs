@@ -1,15 +1,18 @@
+
 #[macro_use]
 pub(crate) mod crate_macros {
     /// Macro to read an exact buffer
     macro_rules! read_exact_buff {
-        ($bufid:ident, $rdr:expr, $buflen:expr) => {{
-            let mut $bufid = [0u8; $buflen];
-            let _ = $rdr.read_exact(&mut $bufid)?;
-            $bufid
-        }};
+        ($bufid:ident, $rdr:expr, $buflen:expr) => {
+            {
+                let mut $bufid = [0u8; $buflen];
+                let _ = $rdr.read_exact(&mut $bufid)?;
+                $bufid
+            }
+        }
     }
 
-    /// Macro to create const for partition types.
+    /// Macro to create const for partition types. 
     macro_rules! partition_types {
     (
         $(
