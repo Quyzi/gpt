@@ -276,23 +276,24 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
 
     let h = Header {
         signature: sigstr.to_string(),
-        revision: u32::from_le_bytes( read_exact_buff!(rev, reader, 4) ),
-        header_size_le: u32::from_le_bytes( read_exact_buff!(hsle, reader, 4) ),
-        crc32: u32::from_le_bytes( read_exact_buff!(crc32, reader, 4) ),
-        reserved: u32::from_le_bytes( read_exact_buff!(reserv, reader, 4) ),
-        current_lba: u64::from_le_bytes( read_exact_buff!(clba, reader, 8) ),
-        backup_lba: u64::from_le_bytes( read_exact_buff!(blba, reader, 8) ),
-        first_usable: u64::from_le_bytes( read_exact_buff!(fusable, reader, 8) ),
-        last_usable: u64::from_le_bytes( read_exact_buff!(lusable, reader, 8) ),
+        revision: u32::from_le_bytes(read_exact_buff!(rev, reader, 4)),
+        header_size_le: u32::from_le_bytes(read_exact_buff!(hsle, reader, 4)),
+        crc32: u32::from_le_bytes(read_exact_buff!(crc32, reader, 4)),
+        reserved: u32::from_le_bytes(read_exact_buff!(reserv, reader, 4)),
+        current_lba: u64::from_le_bytes(read_exact_buff!(clba, reader, 8)),
+        backup_lba: u64::from_le_bytes(read_exact_buff!(blba, reader, 8)),
+        first_usable: u64::from_le_bytes(read_exact_buff!(fusable, reader, 8)),
+        last_usable: u64::from_le_bytes(read_exact_buff!(lusable, reader, 8)),
         disk_guid: parse_uuid(&mut reader)?,
-        part_start: u64::from_le_bytes( read_exact_buff!(pstart, reader, 8) ),
-        num_parts: u32::from_le_bytes( read_exact_buff!(nparts, reader, 4) ),
-        part_size: u32::from_le_bytes( read_exact_buff!(partsize, reader, 4) ),
-        crc32_parts: u32::from_le_bytes( read_exact_buff!(crc32parts, reader, 4) ),
+        part_start: u64::from_le_bytes(read_exact_buff!(pstart, reader, 8)),
+        // Note: this will always return the total number of partition entries
+        // in the array, not how many are actually used
+        num_parts: u32::from_le_bytes(read_exact_buff!(nparts, reader, 4)),
+        part_size: u32::from_le_bytes(read_exact_buff!(partsize, reader, 4)),
+        crc32_parts: u32::from_le_bytes(read_exact_buff!(crc32parts, reader, 4)),
     };
     trace!("header: {:?}", &hdr[..]);
     trace!("header gpt: {}", h.disk_guid.to_hyphenated().to_string());
-
     let mut hdr_crc = hdr;
     for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
         *crc_byte = 0;
@@ -392,4 +393,3 @@ pub fn write_header(
 
     Ok(guid)
 }
-

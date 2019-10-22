@@ -227,6 +227,7 @@ pub(crate) fn file_read_partitions(
     let mut parts: BTreeMap<u32, Partition> = BTreeMap::new();
 
     trace!("scanning {} partitions", header.num_parts);
+    let mut count = 0;
     for i in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
         let mut nameraw: [u8; 72] = [0; 72];
@@ -234,24 +235,32 @@ pub(crate) fn file_read_partitions(
         file.read_exact(&mut bytes)?;
         file.read_exact(&mut nameraw)?;
 
-        let mut reader = Cursor::new(&bytes[..]);
-        let type_guid = parse_uuid(&mut reader)?;
-        let part_guid = parse_uuid(&mut reader)?;
+        let test: [u8; 56] = [0; 56];
+        let test2: [u8; 72] = [0; 72];
+        // Note: unused partition entries are zeroed, so skip them
+        if bytes.eq(&test[0..]) && nameraw.eq(&test2[0..]) {
+            count += 1;
+        } else {
+            let mut reader = Cursor::new(&bytes[..]);
+            let type_guid = parse_uuid(&mut reader)?;
+            let part_guid = parse_uuid(&mut reader)?;
 
-        let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
-        let p = Partition {
-            part_type_guid: Type::from_uuid(&type_guid).map_err(|e| {
-                Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
-            })?,
-            part_guid,
-            first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
-            last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
-            flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
-            name: partname.to_string(),
-        };
+            let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
+            let p = Partition {
+                part_type_guid: Type::from_uuid(&type_guid).map_err(|e| {
+                    Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
+                })?,
+                part_guid,
+                first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
+                last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
+                flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
+                name: partname.to_string(),
+            };
 
-        parts.insert(i + 1, p);
+            parts.insert(i + 1, p);
+        }
     }
+    debug!("Num Zeroed partitions {:?}\n\n", count);
 
     debug!("checking partition table CRC");
     let _ = file.seek(SeekFrom::Start(pstart))?;
