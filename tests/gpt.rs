@@ -1,6 +1,5 @@
 use gpt;
 
-
 use gpt::disk;
 use std::path;
 use tempfile::NamedTempFile;
@@ -16,7 +15,8 @@ fn test_gptconfig_empty() {
     };
 
     let lb_size = disk::LogicalBlockSize::Lb4096;
-    let disk = cfg.initialized(false)
+    let disk = cfg
+        .initialized(false)
         .logical_block_size(lb_size)
         .open(tempdisk.path())
         .unwrap();
@@ -35,7 +35,7 @@ fn test_gptdisk_linux_01() {
     assert_eq!(*gdisk.logical_block_size(), lb_size);
     assert!(gdisk.primary_header().is_some());
     assert!(gdisk.backup_header().is_some());
-    assert_eq!(gdisk.partitions().len(), 128);
+    assert_eq!(gdisk.partitions().len(), 1);
 
     let h1 = gdisk.primary_header().unwrap();
     assert_eq!(h1.current_lba, 1);
