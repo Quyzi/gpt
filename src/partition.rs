@@ -227,7 +227,6 @@ pub(crate) fn file_read_partitions(
     let mut parts: BTreeMap<u32, Partition> = BTreeMap::new();
 
     trace!("scanning {} partitions", header.num_parts);
-    debug!("Number of parts {:?}\n\n", header.num_parts);
     let mut count = 0;
     for i in 0..header.num_parts {
         let mut bytes: [u8; 56] = [0; 56];
