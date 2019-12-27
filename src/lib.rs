@@ -206,6 +206,35 @@ impl GptDisk {
             "Unable to find enough space on drive",
         ))
     }
+    /// remove partition from this disk. This tries to find the partition based on either a
+    /// given partition number (id) or a partition guid.  Returns the partition id if the
+    /// partition is removed
+    pub fn remove_partition(
+        &mut self,
+        id: Option<u32>,
+        partguid: Option<uuid::Uuid>,
+    ) -> io::Result<u32> {
+        if let Some(part_id) = id {
+            if let Some(partition_id) = self.partitions.remove(&part_id) {
+                debug!("Removing partition number {}", partition_id);
+            }
+            return Ok(part_id);
+        }
+        if let Some(part_guid) = partguid {
+            for (key, partition) in &self.partitions.clone() {
+                if partition.part_guid == part_guid {
+                    if let Some(partition_id) = self.partitions.remove(&key) {
+                        debug!("Removing partition number {}", partition_id);
+                    }
+                    return Ok(*key);
+                }
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Unable to find partition to remove",
+        ))
+    }
 
     /// Find free space on the disk.
     /// Returns a tuple of (starting_lba, length in lba's).
