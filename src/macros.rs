@@ -11,6 +11,10 @@ pub(crate) mod crate_macros {
             }
         }
     }
+}
+
+#[macro_use]
+pub mod pub_macros {
 
     /// Macro to create const for partition types. 
     macro_rules! partition_types {
