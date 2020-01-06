@@ -86,7 +86,7 @@ impl Header {
     ///
     /// With a CRC32 set to zero this will set the crc32 after
     /// writing the header out.
-    pub fn write_primary(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
+    pub fn write_primary<D: Read + Write + Seek>(&self, file: &mut D, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         // This is the primary header. It must start before the backup one.
         if self.current_lba >= self.backup_lba {
             debug!(
@@ -105,7 +105,7 @@ impl Header {
     ///
     /// With a CRC32 set to zero this will set the crc32 after
     /// writing the header out.
-    pub fn write_backup(&self, file: &mut File, lb_size: disk::LogicalBlockSize) -> Result<usize> {
+    pub fn write_backup<D: Read + Write + Seek>(&self, file: &mut D, lb_size: disk::LogicalBlockSize) -> Result<usize> {
         // This is the backup header. It must start after the primary one.
         if self.current_lba <= self.backup_lba {
             debug!(
@@ -124,9 +124,9 @@ impl Header {
     ///
     /// With a CRC32 set to zero this will set the crc32 after
     /// writing the header out.
-    fn file_write_header(
+    fn file_write_header<D: Read + Write + Seek>(
         &self,
-        file: &mut File,
+        file: &mut D,
         lba: u64,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<usize> {
@@ -233,8 +233,13 @@ pub fn read_header(path: &Path, sector_size: disk::LogicalBlockSize) -> Result<H
     read_primary_header(&mut file, sector_size)
 }
 
-pub(crate) fn read_primary_header(
-    file: &mut File,
+/// Read a GPT header from any device capable of reading and seeking.
+pub fn read_header_from_arbitrary_device<D: Read + Seek>(device: &mut D, sector_size: disk::LogicalBlockSize) -> Result<Header> {
+    read_primary_header(device, sector_size)
+}
+
+pub(crate) fn read_primary_header<D: Read + Seek>(
+    file: &mut D,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
@@ -244,8 +249,8 @@ pub(crate) fn read_primary_header(
     res
 }
 
-pub(crate) fn read_backup_header(
-    file: &mut File,
+pub(crate) fn read_backup_header<D: Read + Seek>(
+    file: &mut D,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<Header> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
@@ -258,7 +263,7 @@ pub(crate) fn read_backup_header(
     res
 }
 
-pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
+pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Result<Header> {
     let _ = file.seek(SeekFrom::Start(offset));
     let mut hdr: [u8; 92] = [0; 92];
 
@@ -307,7 +312,7 @@ pub(crate) fn file_read_header(file: &mut File, offset: u64) -> Result<Header> {
     }
 }
 
-pub(crate) fn find_backup_lba(f: &mut File, sector_size: disk::LogicalBlockSize) -> Result<u64> {
+pub(crate) fn find_backup_lba<D: Read + Seek>(f: &mut D, sector_size: disk::LogicalBlockSize) -> Result<u64> {
     trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
     let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
@@ -338,8 +343,8 @@ fn calculate_crc32(b: &[u8]) -> Result<u32> {
     Ok(digest.sum32())
 }
 
-pub(crate) fn partentry_checksum(
-    file: &mut File,
+pub(crate) fn partentry_checksum<D: Read + Seek>(
+    file: &mut D,
     hdr: &Header,
     lb_size: disk::LogicalBlockSize,
 ) -> Result<u32> {

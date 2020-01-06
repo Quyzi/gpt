@@ -212,9 +212,9 @@ pub fn read_partitions(
     file_read_partitions(&mut file, header, lb_size)
 }
 
-/// Read a GPT partition table from an open `File` object.
-pub(crate) fn file_read_partitions(
-    file: &mut File,
+/// Read a GPT partition table from an open `Read` + `Seek` object.
+pub fn file_read_partitions<D: Read + Seek>(
+    file: &mut D,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
 ) -> Result<BTreeMap<u32, Partition>> {
