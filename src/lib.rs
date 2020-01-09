@@ -176,6 +176,7 @@ impl GptDisk {
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
+            debug!("starting_lba {}, length {}", starting_lba, length);
             if length >= size_lba {
                 // Found our free slice.
                 let partition_id = self.find_next_partition_id();
@@ -264,7 +265,7 @@ impl GptDisk {
 
     /// Find next highest partition id.
     pub fn find_next_partition_id(&self) -> u32 {
-        match self
+        let max = match self
             .partitions()
             .iter()
             // Skip unused partitions.
@@ -272,10 +273,16 @@ impl GptDisk {
             // Find the maximum id.
             .max_by_key(|x| x.0)
         {
-            Some(i) => i.0 + 1,
+            Some(i) => i.0 + 0,
             // Partitions start at 1.
             None => 1,
+        };
+        for i in 0..max {
+            if self.partitions().get(&i).is_none() {
+                return i;
+            }
         }
+        max + 1
     }
 
     /// Retrieve primary header, if any.
