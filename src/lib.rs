@@ -177,7 +177,7 @@ impl GptDisk {
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
             debug!("starting_lba {}, length {}", starting_lba, length);
-            if length >= size_lba {
+            if length >= (size_lba - 1) {
                 // Found our free slice.
                 let partition_id = self.find_next_partition_id();
                 debug!(
@@ -185,13 +185,13 @@ impl GptDisk {
                     partition_id,
                     part_type,
                     starting_lba,
-                    starting_lba + size_lba as u64
+                    starting_lba + size_lba - 1 as u64
                 );
                 let part = partition::Partition {
                     part_type_guid: part_type,
                     part_guid: uuid::Uuid::new_v4(),
                     first_lba: starting_lba,
-                    last_lba: starting_lba + size_lba as u64,
+                    last_lba: starting_lba + size_lba - 1 as u64,
                     flags,
                     name: name.to_string(),
                 };
@@ -242,21 +242,27 @@ impl GptDisk {
     pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
         if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
             trace!("first_usable: {}", header.first_usable);
-            let mut disk_positions = vec![header.first_usable + 1];
+            let mut disk_positions = vec![header.first_usable];
             for part in self.partitions().iter().filter(|p| p.1.is_used()) {
                 trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
                 disk_positions.push(part.1.first_lba);
                 disk_positions.push(part.1.last_lba);
             }
-            disk_positions.push(header.last_usable - 1);
+            disk_positions.push(header.last_usable);
             trace!("last_usable: {}", header.last_usable);
             disk_positions.sort();
 
             return disk_positions
                 // Walk through the LBA's in chunks of 2 (ending, starting).
                 .chunks(2)
-                // Add 1 to the ending and then subtract the starting.
-                .map(|p| (p[0] + 1, p[1].saturating_sub(p[0])))
+                // Add 1 to the ending and then subtract the starting if NOT the first usable sector
+                .map(|p| {
+                    if p[0] != header.first_usable {
+                        (p[0] + 1, p[1].saturating_sub(p[0] + 1))
+                    } else {
+                        (p[0], p[1].saturating_sub(p[0]))
+                    }
+                })
                 .collect();
         }
         // No primary header. Return nothing.
@@ -275,9 +281,9 @@ impl GptDisk {
         {
             Some(i) => i.0 + 0,
             // Partitions start at 1.
-            None => 1,
+            None => return 1,
         };
-        for i in 0..max {
+        for i in 1..max {
             if self.partitions().get(&i).is_none() {
                 return i;
             }
