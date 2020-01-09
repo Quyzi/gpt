@@ -51,22 +51,34 @@ impl Header {
         pp: &BTreeMap<u32, partition::Partition>,
         guid: uuid::Uuid,
         backup_offset: u64,
+        original_header: &Option<Header>,
     ) -> Result<Self> {
         let (cur, bak) = if primary {
             (1, backup_offset)
         } else {
             (backup_offset, 1)
         };
-        let first = 34u64;
-        let last = backup_offset
-            .checked_sub(first)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?;
+        // sometimes the first usable isn't sector 34, fdisk starts at 2048
+        // to align partition boundaries (https://metebalci.com/blog/a-quick-tour-of-guid-partition-table-gpt/)
+        let first = match original_header {
+            Some(header) => header.first_usable,
+            None => 34u64,
+        };
+        let last = match original_header {
+            Some(header) => header.last_usable,
+            None => backup_offset
+                .checked_sub(first)
+                .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?,
+        };
 
         let hdr = Header {
             signature: "EFI PART".to_string(),
             revision: 65536,
             header_size_le: 92,
-            crc32: 0,
+            crc32: match original_header {
+                Some(header) => header.crc32,
+                None => 0,
+            },
             reserved: 0,
             current_lba: cur,
             backup_lba: bak,
@@ -75,8 +87,15 @@ impl Header {
             disk_guid: guid,
             part_start: 2,
             num_parts: pp.iter().filter(|p| p.1.is_used()).count() as u32,
-            part_size: 128,
-            crc32_parts: 0,
+            //though usually 128, it might be a different number
+            part_size: match original_header {
+                Some(header) => header.part_size,
+                None => 128,
+            },
+            crc32_parts: match original_header {
+                Some(header) => header.crc32_parts,
+                None => 0,
+            },
         };
 
         Ok(hdr)
@@ -86,7 +105,11 @@ impl Header {
     ///
     /// With a CRC32 set to zero this will set the crc32 after
     /// writing the header out.
-    pub fn write_primary<D: Read + Write + Seek>(&self, file: &mut D, lb_size: disk::LogicalBlockSize) -> Result<usize> {
+    pub fn write_primary<D: Read + Write + Seek>(
+        &self,
+        file: &mut D,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<usize> {
         // This is the primary header. It must start before the backup one.
         if self.current_lba >= self.backup_lba {
             debug!(
@@ -105,7 +128,11 @@ impl Header {
     ///
     /// With a CRC32 set to zero this will set the crc32 after
     /// writing the header out.
-    pub fn write_backup<D: Read + Write + Seek>(&self, file: &mut D, lb_size: disk::LogicalBlockSize) -> Result<usize> {
+    pub fn write_backup<D: Read + Write + Seek>(
+        &self,
+        file: &mut D,
+        lb_size: disk::LogicalBlockSize,
+    ) -> Result<usize> {
         // This is the backup header. It must start after the primary one.
         if self.current_lba <= self.backup_lba {
             debug!(
@@ -234,7 +261,10 @@ pub fn read_header(path: &Path, sector_size: disk::LogicalBlockSize) -> Result<H
 }
 
 /// Read a GPT header from any device capable of reading and seeking.
-pub fn read_header_from_arbitrary_device<D: Read + Seek>(device: &mut D, sector_size: disk::LogicalBlockSize) -> Result<Header> {
+pub fn read_header_from_arbitrary_device<D: Read + Seek>(
+    device: &mut D,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<Header> {
     read_primary_header(device, sector_size)
 }
 
@@ -312,7 +342,10 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     }
 }
 
-pub(crate) fn find_backup_lba<D: Read + Seek>(f: &mut D, sector_size: disk::LogicalBlockSize) -> Result<u64> {
+pub(crate) fn find_backup_lba<D: Read + Seek>(
+    f: &mut D,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<u64> {
     trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
     let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
@@ -392,7 +425,7 @@ pub fn write_header(
         }
     };
 
-    let hdr = Header::compute_new(true, &BTreeMap::new(), guid, bak)?;
+    let hdr = Header::compute_new(true, &BTreeMap::new(), guid, bak, &None)?;
     debug!("new header: {:#?}", hdr);
     hdr.write_primary(&mut file, sector_size)?;
 
