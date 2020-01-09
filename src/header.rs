@@ -86,7 +86,12 @@ impl Header {
             last_usable: last,
             disk_guid: guid,
             part_start: 2,
-            num_parts: pp.iter().filter(|p| p.1.is_used()).count() as u32,
+            // really this number should actually usually be 128, as it is the
+            // TOTAL number of entries in the partition table, NOT the number USED.
+            num_parts: match original_header {
+                Some(header) => header.num_parts,
+                None => pp.iter().filter(|p| p.1.is_used()).count() as u32,
+            },
             //though usually 128, it might be a different number
             part_size: match original_header {
                 Some(header) => header.part_size,
