@@ -552,7 +552,6 @@ fn test_compute_new_fdisk_pass_header() {
     new_primary
         .write_primary(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
-    println!("Hello");
     new_backup
         .write_backup(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
@@ -695,7 +694,6 @@ fn test_compute_new_fdisk_gpt_header() {
     new_primary
         .write_primary(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
-    println!("Hello");
     new_backup
         .write_backup(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
