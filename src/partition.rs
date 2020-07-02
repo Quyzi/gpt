@@ -182,7 +182,9 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
         let b = u16::from_le_bytes(read_exact_buff!(bbuff, rdr, 2));
         if b != 0 {
             namebytes.push(b);
-        }
+        } else {
+	    break;
+	}
     }
 
     Ok(String::from_utf16_lossy(&namebytes))
