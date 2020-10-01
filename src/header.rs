@@ -178,7 +178,9 @@ impl Header {
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
         trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
-        let len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        let mut buff = self.as_bytes(Some(checksum), Some(parts_checksum))?;
+        buff.resize(512,0);
+        let len = file.write(&buff)?;
         trace!("Wrote {} bytes", len);
 
         Ok(len)
