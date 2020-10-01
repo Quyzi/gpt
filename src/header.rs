@@ -12,6 +12,8 @@ use uuid;
 use crate::disk;
 use crate::partition;
 
+const GPT_MIN_NUM_PARTITIONS : u32 = 128;
+
 /// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Header {
@@ -48,7 +50,7 @@ pub struct Header {
 impl Header {
     pub(crate) fn compute_new(
         primary: bool,
-        pp: &BTreeMap<u32, partition::Partition>,
+        _pp: &BTreeMap<u32, partition::Partition>, // FIXME: Why is this not used?
         guid: uuid::Uuid,
         backup_offset: u64,
         original_header: &Option<Header>,
@@ -93,7 +95,7 @@ impl Header {
             // UEFI requires space for 128 minimum, but the number can be increased or reduced
             num_parts: match original_header {
                 Some(header) => header.num_parts,
-                None => pp.iter().filter(|p| p.1.is_used()).count() as u32,
+                None => GPT_MIN_NUM_PARTITIONS
             },
             //though usually 128, it might be a different number
             part_size: match original_header {
@@ -114,7 +116,7 @@ impl Header {
         &self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<()> {
         // This is the primary header. It must start before the backup one.
         if self.current_lba >= self.backup_lba {
             debug!(
@@ -137,7 +139,7 @@ impl Header {
         &self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<()> {
         // This is the backup header. It must start after the primary one.
         if self.current_lba <= self.backup_lba {
             debug!(
@@ -161,7 +163,7 @@ impl Header {
         file: &mut D,
         lba: u64,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<()> {
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, self, lb_size)?;
         trace!("computed partitions CRC32: {:#x}", parts_checksum);
@@ -176,14 +178,12 @@ impl Header {
         let start = lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
-        trace!("Seeking to {}", start);
+        println!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
         let mut buff = self.as_bytes(Some(checksum), Some(parts_checksum))?;
-        buff.resize(512,0);
-        let len = file.write(&buff)?;
-        trace!("Wrote {} bytes", len);
-
-        Ok(len)
+        buff.resize(lb_size.into(),0);
+        file.write_all(&buff)?;
+        Ok(())
     }
 
     fn as_bytes(
@@ -442,7 +442,9 @@ pub fn write_header(
 #[test]
 // test compute new with fdisk'd image, without giving original header
 fn test_compute_new_fdisk_no_header() {
+    use simplelog::{Config, SimpleLogger};
     use tempfile;
+    let _ = SimpleLogger::init(simplelog::LevelFilter::Trace, Config::default());
     let diskpath = Path::new("tests/fixtures/test.img");
     let h = read_header(diskpath, disk::DEFAULT_SECTOR_SIZE).unwrap();
     let cfg = crate::GptConfig::new().writable(false).initialized(true);
@@ -456,13 +458,13 @@ fn test_compute_new_fdisk_no_header() {
         .unwrap();
     let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
     println!("Back offset {}", bak);
+    let tempdisk_size = 80 << 20;
     let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
     {
         let data: [u8; 4096] = [0; 4096];
+        let _ = tempdisk.seek(SeekFrom::Start((tempdisk_size - data.len()) as u64)).unwrap();
         println!("Creating blank header file for testing");
-        for _ in 0..100 {
-            tempdisk.write_all(&data).unwrap();
-        }
+	tempdisk.write_all(&data).unwrap();
     };
     let new_primary =
         Header::compute_new(true, &partitions, uuid::Uuid::new_v4(), bak, &None).unwrap();
@@ -470,12 +472,15 @@ fn test_compute_new_fdisk_no_header() {
     let new_backup =
         Header::compute_new(false, &partitions, uuid::Uuid::new_v4(), bak, &None).unwrap();
     println!("new backup header {:#?}", new_backup);
+    println!("writing primary header");
     new_primary
         .write_primary(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
+    println!("writing backup header");
     new_backup
         .write_backup(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
         .unwrap();
+    println!("creating protective MBR");
     let mbr = crate::mbr::ProtectiveMBR::new();
     mbr.overwrite_lba0(&mut tempdisk).unwrap();
     assert_eq!(h.signature, new_primary.signature);
@@ -489,7 +494,7 @@ fn test_compute_new_fdisk_no_header() {
     assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
     assert_eq!(2, new_primary.part_start);
     //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(0, new_primary.num_parts);
+    assert_eq!(GPT_MIN_NUM_PARTITIONS, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
     let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
@@ -631,7 +636,7 @@ fn test_compute_new_gpt_no_header() {
     assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
     assert_eq!(2, new_primary.part_start);
     //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(0, new_primary.num_parts);
+    assert_eq!(GPT_MIN_NUM_PARTITIONS, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
     let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();

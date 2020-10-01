@@ -371,10 +371,18 @@ impl GptDisk {
         trace!("old backup header: {:?}", self.backup_header);
         let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
-        for partition in self.partitions().iter().filter(|p| p.1.is_used()) {
-            partition.1.write(
+        trace!("Number of partitions to write: {}",self.partitions().len());
+        let zerop = partition::Partition::zero();
+        let num_parts = 128 as u32; // XXX
+        for i in 0..num_parts {
+            let partition =
+                match self.partitions.get(&i) {
+                    None => &zerop,
+                    Some(p) => &p
+                };
+            partition.write(
                 &self.path,
-                u64::from(partition.0.checked_sub(1).unwrap_or_else(|| 0)),
+                i as u64,
                 self.primary_header.clone().unwrap().part_start,
                 self.config.lb_size,
             )?;
