@@ -12,7 +12,8 @@ use uuid;
 use crate::disk;
 use crate::partition;
 
-const GPT_MIN_NUM_PARTITIONS : u32 = 128;
+/// Minimum number of partition table entries
+pub const GPT_MIN_NUM_PARTITION_ENTRIES : u32 = 128;
 
 /// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -95,7 +96,7 @@ impl Header {
             // UEFI requires space for 128 minimum, but the number can be increased or reduced
             num_parts: match original_header {
                 Some(header) => header.num_parts,
-                None => GPT_MIN_NUM_PARTITIONS
+                None => GPT_MIN_NUM_PARTITION_ENTRIES
             },
             //though usually 128, it might be a different number
             part_size: match original_header {
@@ -494,7 +495,7 @@ fn test_compute_new_fdisk_no_header() {
     assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
     assert_eq!(2, new_primary.part_start);
     //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(GPT_MIN_NUM_PARTITIONS, new_primary.num_parts);
+    assert_eq!(GPT_MIN_NUM_PARTITION_ENTRIES, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
     let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
@@ -636,7 +637,7 @@ fn test_compute_new_gpt_no_header() {
     assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
     assert_eq!(2, new_primary.part_start);
     //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(GPT_MIN_NUM_PARTITIONS, new_primary.num_parts);
+    assert_eq!(GPT_MIN_NUM_PARTITION_ENTRIES, new_primary.num_parts);
     assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
 
     let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
