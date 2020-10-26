@@ -150,6 +150,25 @@ pub struct GptDisk {
 }
 
 impl GptDisk {
+    /// Sort the partition IDs by partition order and make sure they
+    /// start at one.  If this is not done, fdisk will complain that
+    /// the partitions are out of order, and it also causes problems
+    /// with other tools.
+    pub fn normalize(&mut self) {
+	let keys : Vec<u32> = self.partitions.iter().map(|(&id,_)| id).collect();
+	let mut sorted_partitions = BTreeMap::new();
+	for k in keys.iter() {
+	    if let Some(part) = self.partitions.remove(k) {
+		sorted_partitions.insert(part.first_lba,part);
+	    }
+	}
+	let mut id = 0;
+	for (_,part) in sorted_partitions.into_iter() {
+	    id += 1;
+	    self.partitions.insert(id,part);
+	}
+    }
+
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
     /// Returns the new partition id if there was sufficient room
