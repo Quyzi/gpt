@@ -393,8 +393,9 @@ impl GptDisk {
 	let num_defined_parts = self.partitions().len() as u32;
         trace!("Number of partitions to write: {}",num_defined_parts);
         let zerop = partition::Partition::zero();
-        let num_parts = header::GPT_MIN_NUM_PARTITION_ENTRIES.max(num_defined_parts) as u32;
-        for i in 0..num_parts {
+        let num_parts = header::GPT_MIN_NUM_PARTITION_ENTRIES.max(num_defined_parts);
+        // The partition IDs in the GptDisk.partitions tree start at one
+        for i in 1..=num_parts {
             let partition =
                 match self.partitions.get(&i) {
                     None => &zerop,
@@ -402,7 +403,7 @@ impl GptDisk {
                 };
             partition.write(
                 &self.path,
-                i as u64,
+                (i - 1) as u64,
                 self.primary_header.clone().unwrap().part_start,
                 self.config.lb_size,
             )?;
