@@ -88,9 +88,18 @@ impl FromStr for OperatingSystem {
 }
 
 #[test]
-fn test_partition_fromstr() {
+fn test_partition_fromstr_guid() {
     let p = "0FC63DAF-8483-4772-8E79-3D69D8477DE4";
     let t = Type::from_str(p).unwrap();
+    println!("result: {:?}", t);
+    assert_eq!(t, LINUX_FS);
+}
+
+#[test]
+fn test_partition_from_name() {
+    // mix case as part of the test
+    let p = "Linux_FS";
+    let t = Type::from_name(p).unwrap();
     println!("result: {:?}", t);
     assert_eq!(t, LINUX_FS);
 }
@@ -101,6 +110,13 @@ impl Type {
         let uuid_str = u.to_hyphenated().to_string().to_uppercase();
         trace!("looking up partition type guid {}", uuid_str);
         Type::from_str(&uuid_str)
+    }
+
+    /// Lookup a partition type by name
+    pub fn from_name(name: &str) -> Result<Self, String> {
+        let name_str = name.to_uppercase();
+        trace!("looking up partition type by name {}", name_str);
+        Type::from_str(&name_str)
     }
 }
 
