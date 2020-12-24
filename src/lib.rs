@@ -106,15 +106,7 @@ impl GptConfig {
     pub fn open_from_device(self, mut device: DiskDeviceObject) -> io::Result<GptDisk> {
         // Uninitialized disk, no headers/table to parse.
         if !self.initialized {
-            let empty = GptDisk {
-                config: self,
-                device,
-                guid: uuid::Uuid::new_v4(),
-                primary_header: None,
-                backup_header: None,
-                partitions: BTreeMap::new(),
-            };
-            return Ok(empty);
+            return self.create_from_device(device, Some(uuid::Uuid::new_v4()));
         }
 
         // Proper GPT disk, fully inspect its layout.
@@ -131,6 +123,32 @@ impl GptConfig {
         };
         debug!("disk: {:?}", disk);
         Ok(disk)
+    }
+
+    /// Create a GPTDisk with default headers and an empty partition table.
+    /// If guid is None then it will generate a new random guid.
+    pub fn create_from_device(
+        self,
+        device: DiskDeviceObject,
+        guid: Option<uuid::Uuid>
+    ) -> io::Result<GptDisk> {
+        if self.initialized {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "we were expecting to read an existing partition table, but \
+                    instead we're attempting to create a new blank table",
+           ))
+        } else {
+            let empty = GptDisk {
+                config: self,
+                device,
+                guid: guid.unwrap_or_else(uuid::Uuid::new_v4),
+                primary_header: None,
+                backup_header: None,
+                partitions: BTreeMap::new(),
+            };
+            Ok(empty)
+        }
     }
 }
 
