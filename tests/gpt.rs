@@ -1,6 +1,8 @@
 use gpt;
 
 use gpt::disk;
+use std::convert::TryFrom;
+use std::io::{SeekFrom, Write};
 use std::path;
 use tempfile::NamedTempFile;
 
@@ -51,4 +53,48 @@ fn test_gptdisk_linux_01() {
     assert_eq!(p1_start, 0x22 * 512);
     let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_len, (0x3E - 0x22) * 512);
+}
+
+#[test]
+fn test_gptdisk_linux_01_write_fidelity_with_device() {
+    let diskpath = path::Path::new("tests/fixtures/gpt-linux-disk-01.img");
+
+    // Assumes that test_gptdisk_linux_01 has passed, no need to check answers.
+    let mut gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
+    let good_header1 = gdisk.primary_header().unwrap().clone();
+    let good_header2 = gdisk.backup_header().unwrap().clone();
+    let good_partitions = gdisk.partitions().clone();
+    println!("good header1={:?}", good_header1);
+    println!("good header2={:?}", good_header2);
+    println!("good partitions={:#?}", good_partitions);
+
+    // Test that we can write this test partition table to an in-memory buffer
+    // instead, then load the results and verify they should be the same.
+    let image_size = usize::try_from(std::fs::metadata(diskpath).unwrap().len()).unwrap();
+    let mem_device = Box::new(std::io::Cursor::new(vec![0u8; image_size]));
+    gdisk.update_disk_device(mem_device, true);
+    let mut mem_device = gdisk.write().unwrap();
+
+    // Write this memory buffer to a temp file, and load from the file to verify
+    // that we wrote the data to the memory buffer correctly.
+    let mut tempdisk = NamedTempFile::new().expect("failed to create tempfile disk");
+    let mut gpt_in_mem = vec![0u8; image_size];
+    let _ = mem_device.seek(SeekFrom::Start(0)).unwrap();
+    mem_device.read_exact(&mut gpt_in_mem).unwrap();
+    tempdisk.write_all(&gpt_in_mem).unwrap();
+    tempdisk.flush().unwrap();
+
+    let gdisk_file = gpt::GptConfig::new().open(tempdisk.path()).unwrap();
+    println!("file header1={:?}", gdisk_file.primary_header().unwrap());
+    println!("file header2={:?}", gdisk_file.backup_header().unwrap());
+    println!("file partitions={:#?}", gdisk_file.partitions());
+    assert_eq!(gdisk_file.primary_header().unwrap(), &good_header1);
+    assert_eq!(gdisk_file.backup_header().unwrap(), &good_header2);
+    assert_eq!(gdisk_file.partitions().clone(), good_partitions);
+
+    // Test that if we read it back from this memory buffer, it matches the known good.
+    let gdisk_mem = gpt::GptConfig::new().open_from_device(mem_device).unwrap();
+    assert_eq!(gdisk_mem.primary_header().unwrap(), &good_header1);
+    assert_eq!(gdisk_mem.backup_header().unwrap(), &good_header2);
+    assert_eq!(gdisk_mem.partitions().clone(), good_partitions);
 }

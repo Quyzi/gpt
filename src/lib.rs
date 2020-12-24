@@ -322,6 +322,17 @@ impl GptDisk {
         &self.config.lb_size
     }
 
+    /// Change the disk device that we are reading/writing from/to.
+    /// Returns the previous disk device.
+    pub fn update_disk_device(
+        &mut self,
+        device: DiskDeviceObject,
+        writable: bool
+    ) -> DiskDeviceObject {
+        self.config.writable = writable;
+        std::mem::replace(&mut self.device, device)
+    }
+
     /// Update disk UUID.
     ///
     /// If no UUID is specified, a new random one is generated.
