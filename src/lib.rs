@@ -388,6 +388,7 @@ impl GptDisk {
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
         let primary_header = self.primary_header.clone().unwrap();
+        let backup_header = self.backup_header.clone();
         for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
             partition.1.write_to_device(
                 &mut self.device,
@@ -396,6 +397,20 @@ impl GptDisk {
                 self.config.lb_size,
                 primary_header.part_size,
             )?;
+            // IMPORTANT: must also write it to the backup header if it uses a different
+            // area to store the partition array; otherwise backup header will not point
+            // to an up to date partition array on disk.
+            if let Some(backup_header) = backup_header.as_ref() {
+                if primary_header.part_start != backup_header.part_start {
+                    partition.1.write_to_device(
+                        &mut self.device,
+                        u64::from(partition.0.checked_sub(1).unwrap_or(0)),
+                        backup_header.part_start,
+                        self.config.lb_size,
+                        backup_header.part_size,
+                    )?;
+                }
+            }
         }
         let new_backup_header = header::Header::compute_new(
             false,
