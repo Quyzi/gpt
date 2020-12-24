@@ -34,7 +34,7 @@
 
 use log::*;
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::{fs, io, path};
 
 #[macro_use]
@@ -44,6 +44,13 @@ pub mod header;
 pub mod mbr;
 pub mod partition;
 pub mod partition_types;
+
+/// A generic device that we can read/write partitions from/to.
+pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
+/// Implement the DiskDevice trait for anything that meets the
+/// requirements, e.g., `std::fs::File`
+impl<T> DiskDevice for T where T: Read + Write + Seek + std::fmt::Debug {}
+type DiskDeviceObject = Box<dyn DiskDevice>;
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
@@ -87,17 +94,22 @@ impl GptConfig {
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
     pub fn open(self, diskpath: &path::Path) -> io::Result<GptDisk> {
+        let file = Box::new(fs::OpenOptions::new()
+            .write(self.writable)
+            .read(true)
+            .open(diskpath)?);
+        self.open_from_device(file as DiskDeviceObject)
+    }
+
+    /// Open the GPT disk from the given DiskDeviceObject and
+    /// inspect it according to configuration options.
+    pub fn open_from_device(self, mut device: DiskDeviceObject) -> io::Result<GptDisk> {
         // Uninitialized disk, no headers/table to parse.
         if !self.initialized {
-            let file = fs::OpenOptions::new()
-                .write(self.writable)
-                .read(true)
-                .open(diskpath)?;
             let empty = GptDisk {
                 config: self,
-                file,
+                device,
                 guid: uuid::Uuid::new_v4(),
-                path: diskpath.to_path_buf(),
                 primary_header: None,
                 backup_header: None,
                 partitions: BTreeMap::new(),
@@ -106,18 +118,13 @@ impl GptConfig {
         }
 
         // Proper GPT disk, fully inspect its layout.
-        let mut file = fs::OpenOptions::new()
-            .write(self.writable)
-            .read(true)
-            .open(diskpath)?;
-        let h1 = header::read_primary_header(&mut file, self.lb_size)?;
-        let h2 = header::read_backup_header(&mut file, self.lb_size)?;
-        let table = partition::file_read_partitions(&mut file, &h1, self.lb_size)?;
+        let h1 = header::read_primary_header(&mut device, self.lb_size)?;
+        let h2 = header::read_backup_header(&mut device, self.lb_size)?;
+        let table = partition::file_read_partitions(&mut device, &h1, self.lb_size)?;
         let disk = GptDisk {
             config: self,
-            file,
+            device,
             guid: h1.disk_guid,
-            path: diskpath.to_path_buf(),
             primary_header: Some(h1),
             backup_header: Some(h2),
             partitions: table,
@@ -137,13 +144,12 @@ impl Default for GptConfig {
     }
 }
 
-/// A file-backed GPT disk.
+/// A GPT disk backed by an arbitrary device.
 #[derive(Debug)]
 pub struct GptDisk {
     config: GptConfig,
-    file: fs::File,
+    device: DiskDeviceObject,
     guid: uuid::Uuid,
-    path: path::PathBuf,
     primary_header: Option<header::Header>,
     backup_header: Option<header::Header>,
     partitions: BTreeMap<u32, partition::Partition>,
@@ -341,7 +347,7 @@ impl GptDisk {
         pp: BTreeMap<u32, partition::Partition>,
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
-        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
+        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
         let h1 = header::Header::compute_new(true, &pp, self.guid, bak, &self.primary_header)?;
         let h2 = header::Header::compute_new(false, &pp, self.guid, bak, &self.backup_header)?;
         self.primary_header = Some(h1);
@@ -355,8 +361,18 @@ impl GptDisk {
     ///
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
-    /// before returning the underlying `File` object.
-    pub fn write(mut self) -> io::Result<fs::File> {
+    /// before returning the underlying DiskDeviceObject.
+    pub fn write(mut self) -> io::Result<DiskDeviceObject> {
+        self.write_inplace()?;
+        Ok(self.device)
+    }
+
+    /// Persist state to disk, leaving this disk object intact.
+    ///
+    /// This is a destructive action, as it overwrites headers
+    /// and partitions entries on disk. All writes are flushed
+    /// to disk before returning.
+    pub fn write_inplace(&mut self) -> io::Result<()> {
         if !self.config.writable {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
@@ -369,14 +385,16 @@ impl GptDisk {
         debug!("Computing new headers");
         trace!("old primary header: {:?}", self.primary_header);
         trace!("old backup header: {:?}", self.backup_header);
-        let bak = header::find_backup_lba(&mut self.file, self.config.lb_size)?;
+        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
-        for partition in self.partitions().iter().filter(|p| p.1.is_used()) {
-            partition.1.write(
-                &self.path,
-                u64::from(partition.0.checked_sub(1).unwrap_or_else(|| 0)),
-                self.primary_header.clone().unwrap().part_start,
+        let primary_header = self.primary_header.clone().unwrap();
+        for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
+            partition.1.write_to_device(
+                &mut self.device,
+                u64::from(partition.0.checked_sub(1).unwrap_or(0)),
+                primary_header.part_start,
                 self.config.lb_size,
+                primary_header.part_size,
             )?;
         }
         let new_backup_header = header::Header::compute_new(
@@ -394,16 +412,16 @@ impl GptDisk {
             &self.backup_header,
         )?;
         debug!("Writing backup header");
-        new_backup_header.write_backup(&mut self.file, self.config.lb_size)?;
+        new_backup_header.write_backup(&mut self.device, self.config.lb_size)?;
         debug!("Writing primary header");
-        new_primary_header.write_primary(&mut self.file, self.config.lb_size)?;
+        new_primary_header.write_primary(&mut self.device, self.config.lb_size)?;
         trace!("new primary header: {:?}", new_primary_header);
         trace!("new backup header: {:?}", new_backup_header);
 
-        self.file.flush()?;
-        self.primary_header = Some(new_primary_header.clone());
+        self.device.flush()?;
+        self.primary_header = Some(new_primary_header);
         self.backup_header = Some(new_backup_header);
 
-        Ok(self.file)
+        Ok(())
     }
 }
