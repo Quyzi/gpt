@@ -178,7 +178,10 @@ impl Header {
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
         trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
-        let len = file.write(&self.as_bytes(Some(checksum), Some(parts_checksum))?)?;
+        let mut header_bytes = self.as_bytes(Some(checksum), Some(parts_checksum))?;
+        // Per the spec, the rest of the logical block must be zeros...
+        header_bytes.resize(Into::<usize>::into(lb_size), 0x00);
+        let len = file.write(&header_bytes)?;
         trace!("Wrote {} bytes", len);
 
         Ok(len)
