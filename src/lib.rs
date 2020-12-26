@@ -3,8 +3,9 @@
 //! It provides support for manipulating (R/W) GPT headers and partition
 //! tables. Raw disk devices as well as disk images are supported.
 //!
-//! ```rust,no_run
+//! ```
 //! extern crate gpt;
+//! use std::convert::TryFrom;
 //!
 //! fn inspect_disk() {
 //!     let diskpath = std::path::Path::new("/dev/sdz");
@@ -28,6 +29,47 @@
 //!     );
 //!     disk.write().unwrap();
 //! }
+//!
+//! /// Demonstrates how to create a new partition table without anything pre-existing
+//! fn create_partition_in_ram() {
+//!     const TOTAL_BYTES: usize = 1024 * 64;
+//!     let mut mem_device = Box::new(std::io::Cursor::new(vec![0u8; TOTAL_BYTES]));
+//!
+//!     // Create a protective MBR at LBA0
+//!     let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(
+//!         u32::try_from(TOTAL_BYTES / 512).unwrap_or(0xFF_FF_FF_FF));
+//!     mbr.overwrite_lba0(&mut mem_device).expect("failed to write MBR");
+//!
+//!     let mut gdisk = gpt::GptConfig::default()
+//!         .initialized(false)
+//!         .writable(true)
+//!         .logical_block_size(gpt::disk::LogicalBlockSize::Lb512)
+//!         .create_from_device(mem_device, None)
+//!         .expect("failed to crate GptDisk");
+//!
+//!     // Initialize the headers using a blank partition table
+//!     gdisk.update_partitions(
+//!         std::collections::BTreeMap::<u32, gpt::partition::Partition>::new()
+//!     ).expect("failed to initialize blank partition table");
+//!
+//!     // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
+//!     // Add a few partitions to demonstrate how...
+//!     gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0)
+//!         .expect("failed to add test1 partition");
+//!     gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0)
+//!         .expect("failed to add test2 partition");
+//!     // Write the partition table and take ownership of
+//!     // the underlying memory buffer-backed block device
+//!     let mut mem_device = gdisk.write().expect("failed to write partition table");
+//!     // Read the written bytes out of the memory buffer device
+//!     mem_device.seek(std::io::SeekFrom::Start(0)).expect("failed to seek");
+//!     let mut final_bytes = vec![0u8; TOTAL_BYTES];
+//!     mem_device.read_exact(&mut final_bytes)
+//!         .expect("failed to read contents of memory device");
+//! }
+//!
+//! // only manipulates memory buffers, so this can run on any system...
+//! create_partition_in_ram();
 //! ```
 
 #![deny(missing_docs)]
@@ -50,7 +92,8 @@ pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
 /// Implement the DiskDevice trait for anything that meets the
 /// requirements, e.g., `std::fs::File`
 impl<T> DiskDevice for T where T: Read + Write + Seek + std::fmt::Debug {}
-type DiskDeviceObject = Box<dyn DiskDevice>;
+/// A dynamic trait object that is used by GptDisk for reading/writing/seeking.
+pub type DiskDeviceObject = Box<dyn DiskDevice>;
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
