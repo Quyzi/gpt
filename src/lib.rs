@@ -420,10 +420,23 @@ impl GptDisk {
         trace!("old backup lba: {}", bak);
         let primary_header = self.primary_header.clone().unwrap();
         let backup_header = self.backup_header.clone();
+
+        // Write all of the used partitions at the start of the partition array.
+        let mut next_partition_index = 0u64;
         for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
+            // don't allow us to overflow partition array...
+            if next_partition_index >= primary_header.num_parts as u64 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("attempting to write more than max of {} partitions in primary array",
+                        primary_header.num_parts),
+                ));
+            }
+
+            // Write to primary partition array
             partition.1.write_to_device(
                 &mut self.device,
-                u64::from(partition.0.checked_sub(1).unwrap_or(0)),
+                next_partition_index,
                 primary_header.part_start,
                 self.config.lb_size,
                 primary_header.part_size,
@@ -432,17 +445,48 @@ impl GptDisk {
             // area to store the partition array; otherwise backup header will not point
             // to an up to date partition array on disk.
             if let Some(backup_header) = backup_header.as_ref() {
+                if next_partition_index >= backup_header.num_parts as u64 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("attempting to write more than max of {} partitions in backup array",
+                            backup_header.num_parts),
+                    ));
+                }
                 if primary_header.part_start != backup_header.part_start {
                     partition.1.write_to_device(
                         &mut self.device,
-                        u64::from(partition.0.checked_sub(1).unwrap_or(0)),
+                        next_partition_index,
                         backup_header.part_start,
                         self.config.lb_size,
                         backup_header.part_size,
                     )?;
                 }
             }
+            next_partition_index += 1;
         }
+
+        // Next, write zeros to the rest of the primary/backup partition array
+        // (ensures any newly deleted partitions are truly removed from disk, etc.)
+        // NOTE: we should never underflow here because of boundary checking in loop above.
+        partition::Partition::write_zero_entries_to_device(
+            &mut self.device,
+            next_partition_index,
+            (primary_header.num_parts as u64).checked_sub(next_partition_index).unwrap(),
+            primary_header.part_start,
+            self.config.lb_size,
+            primary_header.part_size,
+        )?;
+        if let Some(backup_header) = backup_header.as_ref() {
+            partition::Partition::write_zero_entries_to_device(
+                &mut self.device,
+                next_partition_index,
+                (backup_header.num_parts as u64).checked_sub(next_partition_index).unwrap(),
+                backup_header.part_start,
+                self.config.lb_size,
+                backup_header.part_size,
+            )?;
+        }
+
         let new_backup_header = header::Header::compute_new(
             false,
             &self.partitions,

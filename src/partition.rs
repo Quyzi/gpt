@@ -138,6 +138,34 @@ impl Partition {
         Ok(())
     }
 
+    /// Write empty partition entries starting at the given index in the partition array
+    /// for the given number of entries...
+    pub fn write_zero_entries_to_device<D: DiskDevice>(
+        device: &mut D,
+        starting_partition_index: u64,
+        number_entries: u64,
+        start_lba: u64,
+        lb_size: disk::LogicalBlockSize,
+        bytes_per_partition: u32,
+    ) -> Result<()> {
+        trace!("writing {} unused partition entries starting at index {}, start_lba={}",
+            number_entries, starting_partition_index, start_lba);
+        let pstart = start_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
+        let offset = starting_partition_index
+            .checked_mul(bytes_per_partition as u64)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
+        trace!("seeking to starting partition start: {}", pstart + offset);
+        device.seek(SeekFrom::Start(pstart + offset))?;
+        let bytes_to_zero = (bytes_per_partition as u64)
+            .checked_mul(number_entries)
+            .and_then(|x| usize::try_from(x).ok())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - bytes to zero"))?;
+        device.write_all(&vec![0u8; bytes_to_zero])?;
+        Ok(())
+    }
+
     /// Return the length (in bytes) of this partition.
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
         let len = self
