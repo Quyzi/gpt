@@ -93,7 +93,7 @@ pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
 /// requirements, e.g., `std::fs::File`
 impl<T> DiskDevice for T where T: Read + Write + Seek + std::fmt::Debug {}
 /// A dynamic trait object that is used by GptDisk for reading/writing/seeking.
-pub type DiskDeviceObject = Box<dyn DiskDevice>;
+pub type DiskDeviceObject<'a> = Box<dyn DiskDevice + 'a>;
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
@@ -207,16 +207,16 @@ impl Default for GptConfig {
 
 /// A GPT disk backed by an arbitrary device.
 #[derive(Debug)]
-pub struct GptDisk {
+pub struct GptDisk<'a> {
     config: GptConfig,
-    device: DiskDeviceObject,
+    device: DiskDeviceObject<'a>,
     guid: uuid::Uuid,
     primary_header: Option<header::Header>,
     backup_header: Option<header::Header>,
     partitions: BTreeMap<u32, partition::Partition>,
 }
 
-impl GptDisk {
+impl<'a> GptDisk<'a> {
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
     /// Returns the new partition id if there was sufficient room
@@ -387,7 +387,7 @@ impl GptDisk {
     /// Returns the previous disk device.
     pub fn update_disk_device(
         &mut self,
-        device: DiskDeviceObject,
+        device: DiskDeviceObject<'a>,
         writable: bool
     ) -> DiskDeviceObject {
         self.config.writable = writable;
@@ -436,7 +436,7 @@ impl GptDisk {
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
     /// before returning the underlying DiskDeviceObject.
-    pub fn write(mut self) -> io::Result<DiskDeviceObject> {
+    pub fn write(mut self) -> io::Result<DiskDeviceObject<'a>> {
         self.write_inplace()?;
         Ok(self.device)
     }
