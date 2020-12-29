@@ -346,7 +346,7 @@ impl<'a> GptDisk<'a> {
             // Find the maximum id.
             .max_by_key(|x| x.0)
         {
-            Some(i) => i.0 + 0,
+            Some(i) => *i.0,
             // Partitions start at 1.
             None => return 1,
         };
@@ -468,7 +468,7 @@ impl<'a> GptDisk<'a> {
         let mut next_partition_index = 0u64;
         for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
             // don't allow us to overflow partition array...
-            if next_partition_index >= primary_header.num_parts as u64 {
+            if next_partition_index >= u64::from(primary_header.num_parts) {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!("attempting to write more than max of {} partitions in primary array",
@@ -488,7 +488,7 @@ impl<'a> GptDisk<'a> {
             // area to store the partition array; otherwise backup header will not point
             // to an up to date partition array on disk.
             if let Some(backup_header) = backup_header.as_ref() {
-                if next_partition_index >= backup_header.num_parts as u64 {
+                if next_partition_index >= u64::from(backup_header.num_parts) {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
                         format!("attempting to write more than max of {} partitions in backup array",
@@ -514,7 +514,7 @@ impl<'a> GptDisk<'a> {
         partition::Partition::write_zero_entries_to_device(
             &mut self.device,
             next_partition_index,
-            (primary_header.num_parts as u64).checked_sub(next_partition_index).unwrap(),
+            u64::from(primary_header.num_parts).checked_sub(next_partition_index).unwrap(),
             primary_header.part_start,
             self.config.lb_size,
             primary_header.part_size,
@@ -523,7 +523,7 @@ impl<'a> GptDisk<'a> {
             partition::Partition::write_zero_entries_to_device(
                 &mut self.device,
                 next_partition_index,
-                (backup_header.num_parts as u64).checked_sub(next_partition_index).unwrap(),
+                u64::from(backup_header.num_parts).checked_sub(next_partition_index).unwrap(),
                 backup_header.part_start,
                 self.config.lb_size,
                 backup_header.part_size,

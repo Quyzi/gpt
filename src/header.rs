@@ -75,7 +75,7 @@ impl Header {
             None => 128,
         };
 
-        let part_array_num_bytes = (num_parts * part_size) as u64;
+        let part_array_num_bytes = u64::from(num_parts * part_size);
         // If not an exact multiple of a sector, round up to the next # of whole sectors.
         let lb_size_u64 = Into::<u64>::into(lb_size);
         let part_array_num_lbs = (part_array_num_bytes + (lb_size_u64 - 1)) / lb_size_u64;

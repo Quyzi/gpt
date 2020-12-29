@@ -128,7 +128,7 @@ impl Partition {
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         // The offset is bytes_per_partition * partition_index
         let offset = partition_index
-            .checked_mul(bytes_per_partition as u64)
+            .checked_mul(u64::from(bytes_per_partition))
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to partition start: {}", pstart + offset);
         device.seek(SeekFrom::Start(pstart + offset))?;
@@ -154,11 +154,11 @@ impl Partition {
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
         let offset = starting_partition_index
-            .checked_mul(bytes_per_partition as u64)
+            .checked_mul(u64::from(bytes_per_partition))
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to starting partition start: {}", pstart + offset);
         device.seek(SeekFrom::Start(pstart + offset))?;
-        let bytes_to_zero = (bytes_per_partition as u64)
+        let bytes_to_zero = u64::from(bytes_per_partition)
             .checked_mul(number_entries)
             .and_then(|x| usize::try_from(x).ok())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - bytes to zero"))?;
