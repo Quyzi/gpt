@@ -37,7 +37,7 @@
 //!
 //!     // Create a protective MBR at LBA0
 //!     let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(
-//!         u32::try_from(TOTAL_BYTES / 512).unwrap_or(0xFF_FF_FF_FF));
+//!         u32::try_from((TOTAL_BYTES / 512) - 1).unwrap_or(0xFF_FF_FF_FF));
 //!     mbr.overwrite_lba0(&mut mem_device).expect("failed to write MBR");
 //!
 //!     let mut gdisk = gpt::GptConfig::default()

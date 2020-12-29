@@ -46,7 +46,9 @@ impl ProtectiveMBR {
         Self::default()
     }
 
-    /// Create a protective-MBR object with a specific disk size (in LB).
+    /// Create a protective-MBR object with a specific protective partition size (in LB).
+    /// The protective partition size should be the size of the disk - 1 (because the protective
+    /// partition always begins at LBA 1 (the second sector)).
     pub fn with_lb_size(lb_size: u32) -> Self {
         Self {
             bootcode: [0x00; 440],
