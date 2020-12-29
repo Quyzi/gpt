@@ -166,6 +166,20 @@ impl ProtectiveMBR {
         self
     }
 
+    /// Returns the given partition (0..=3). Panics if the partition index is invalid.
+    pub fn partition(&self, partition_index: usize) -> PartRecord {
+        self.partitions[partition_index]
+    }
+
+    /// Set the data for the given partition. Panics if the index is invalid.
+    /// Returns the previous partition record.
+    ///
+    /// This only changes the in-memory state, without overwriting
+    /// any on-disk data.
+    pub fn set_partition(&mut self, partition_index: usize, partition: PartRecord) -> PartRecord {
+        std::mem::replace(&mut self.partitions[partition_index], partition)
+    }
+
     /// Write a protective MBR to LBA0, overwriting any existing data.
     pub fn overwrite_lba0<D: DiskDevice>(&self, device: &mut D) -> io::Result<usize> {
         let cur = device.seek(io::SeekFrom::Current(0))?;
@@ -201,18 +215,28 @@ impl ProtectiveMBR {
 }
 
 /// A partition record, MBR-style.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PartRecord {
-    boot_indicator: u8,
-    start_head: u8,
-    start_sector: u8,
-    start_track: u8,
-    os_type: u8,
-    end_head: u8,
-    end_sector: u8,
-    end_track: u8,
-    lb_start: u32,
-    lb_size: u32,
+    /// Bit 7 set if partition is active (bootable)
+    pub boot_indicator: u8,
+    /// CHS address of partition start: 8-bit value of head in CHS address
+    pub start_head: u8,
+    /// CHS address of partition start: Upper 2 bits are 8th-9th bits of cylinder, lower 6 bits are sector
+    pub start_sector: u8,
+    /// CHS address of partition start: Lower 8 bits of cylinder
+    pub start_track: u8,
+    /// Partition type. See https://www.win.tue.nl/~aeb/partitions/partition_types-1.html
+    pub os_type: u8,
+    /// CHS address of partition end: 8-bit value of head in CHS address
+    pub end_head: u8,
+    /// CHS address of partition end: Upper 2 bits are 8th-9th bits of cylinder, lower 6 bits are sector
+    pub end_sector: u8,
+    /// CHS address of partition end: Lower 8 bits of cylinder
+    pub end_track: u8,
+    /// LBA of start of partition
+    pub lb_start: u32,
+    /// Number of sectors in partition
+    pub lb_size: u32,
 }
 
 impl PartRecord {
