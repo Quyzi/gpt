@@ -4,8 +4,9 @@
 //! to work with Master Boot Record (MBR), also known as LBA0.
 
 use crate::disk;
-use std::io::{Read, Seek, Write};
-use std::{fmt, fs, io};
+use crate::DiskDevice;
+use std::io::{Read, Write};
+use std::{fmt, io};
 
 /// Protective MBR, as defined by GPT.
 pub struct ProtectiveMBR {
@@ -45,7 +46,9 @@ impl ProtectiveMBR {
         Self::default()
     }
 
-    /// Create a protective-MBR object with a specific disk size (in LB).
+    /// Create a protective-MBR object with a specific protective partition size (in LB).
+    /// The protective partition size should be the size of the disk - 1 (because the protective
+    /// partition always begins at LBA 1 (the second sector)).
     pub fn with_lb_size(lb_size: u32) -> Self {
         Self {
             bootcode: [0x00; 440],
@@ -106,16 +109,19 @@ impl ProtectiveMBR {
         Ok(pmbr)
     }
 
-    /// Read the LBA0 of a disk and parse it into a protective-MBR object.
-    pub fn from_disk(file: &mut fs::File, sector_size: disk::LogicalBlockSize) -> io::Result<Self> {
+    /// Read the LBA0 of a disk device and parse it into a protective-MBR object.
+    pub fn from_disk<D: DiskDevice>(
+        device: &mut D,
+        sector_size: disk::LogicalBlockSize
+    ) -> io::Result<Self> {
         let totlen: u64 = sector_size.into();
         let mut buf = vec![0u8; totlen as usize];
-        let cur = file.seek(io::SeekFrom::Current(0))?;
+        let cur = device.seek(io::SeekFrom::Current(0))?;
 
-        file.seek(io::SeekFrom::Start(0))?;
-        file.read_exact(&mut buf)?;
+        device.seek(io::SeekFrom::Start(0))?;
+        device.read_exact(&mut buf)?;
         let pmbr = Self::from_bytes(&buf, sector_size);
-        file.seek(io::SeekFrom::Start(cur))?;
+        device.seek(io::SeekFrom::Start(cur))?;
         pmbr
     }
 
@@ -162,15 +168,37 @@ impl ProtectiveMBR {
         self
     }
 
-    /// Write a protective MBR to LBA0, overwriting any existing data.
-    pub fn overwrite_lba0(&self, file: &mut fs::File) -> io::Result<usize> {
-        let cur = file.seek(io::SeekFrom::Current(0))?;
-        let _ = file.seek(io::SeekFrom::Start(0))?;
-        let data = self.as_bytes()?;
-        file.write_all(&data)?;
-        file.flush()?;
+    /// Returns the given partition (0..=3) or None if the partition index is invalid.
+    pub fn partition(&self, partition_index: usize) -> Option<PartRecord> {
+        if partition_index >= self.partitions.len() {
+            None
+        } else {
+            Some(self.partitions[partition_index])
+        }
+    }
 
-        file.seek(io::SeekFrom::Start(cur))?;
+    /// Set the data for the given partition.
+    /// Returns the previous partition record or None if the partition index is invalid.
+    ///
+    /// This only changes the in-memory state, without overwriting
+    /// any on-disk data.
+    pub fn set_partition(&mut self, partition_index: usize, partition: PartRecord) -> Option<PartRecord> {
+        if partition_index >= self.partitions.len() {
+            None
+        } else {
+            Some(std::mem::replace(&mut self.partitions[partition_index], partition))
+        }
+    }
+
+    /// Write a protective MBR to LBA0, overwriting any existing data.
+    pub fn overwrite_lba0<D: DiskDevice>(&self, device: &mut D) -> io::Result<usize> {
+        let cur = device.seek(io::SeekFrom::Current(0))?;
+        let _ = device.seek(io::SeekFrom::Start(0))?;
+        let data = self.as_bytes()?;
+        device.write_all(&data)?;
+        device.flush()?;
+
+        device.seek(io::SeekFrom::Start(cur))?;
         Ok(data.len())
     }
 
@@ -178,37 +206,47 @@ impl ProtectiveMBR {
     ///
     /// This overwrites the four MBR partition records and the
     /// well-known signature, leaving all other MBR bits as-is.
-    pub fn update_conservative(&self, file: &mut fs::File) -> io::Result<usize> {
-        let cur = file.seek(io::SeekFrom::Current(0))?;
+    pub fn update_conservative<D: DiskDevice>(&self, device: &mut D) -> io::Result<usize> {
+        let cur = device.seek(io::SeekFrom::Current(0))?;
         // Seek to first partition record.
         // (GPT spec 2.7 - sec. 5.2.3 - table 15)
-        let _ = file.seek(io::SeekFrom::Start(446))?;
+        let _ = device.seek(io::SeekFrom::Start(446))?;
         for p in &self.partitions {
             let pdata = p.as_bytes()?;
-            file.write_all(&pdata)?;
+            device.write_all(&pdata)?;
         }
-        file.write_all(&self.signature)?;
-        file.flush()?;
+        device.write_all(&self.signature)?;
+        device.flush()?;
 
-        file.seek(io::SeekFrom::Start(cur))?;
+        device.seek(io::SeekFrom::Start(cur))?;
         let bytes_updated: usize = (16 * 4) + 2;
         Ok(bytes_updated)
     }
 }
 
 /// A partition record, MBR-style.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct PartRecord {
-    boot_indicator: u8,
-    start_head: u8,
-    start_sector: u8,
-    start_track: u8,
-    os_type: u8,
-    end_head: u8,
-    end_sector: u8,
-    end_track: u8,
-    lb_start: u32,
-    lb_size: u32,
+    /// Bit 7 set if partition is active (bootable)
+    pub boot_indicator: u8,
+    /// CHS address of partition start: 8-bit value of head in CHS address
+    pub start_head: u8,
+    /// CHS address of partition start: Upper 2 bits are 8th-9th bits of cylinder, lower 6 bits are sector
+    pub start_sector: u8,
+    /// CHS address of partition start: Lower 8 bits of cylinder
+    pub start_track: u8,
+    /// Partition type. See https://www.win.tue.nl/~aeb/partitions/partition_types-1.html
+    pub os_type: u8,
+    /// CHS address of partition end: 8-bit value of head in CHS address
+    pub end_head: u8,
+    /// CHS address of partition end: Upper 2 bits are 8th-9th bits of cylinder, lower 6 bits are sector
+    pub end_sector: u8,
+    /// CHS address of partition end: Lower 8 bits of cylinder
+    pub end_track: u8,
+    /// LBA of start of partition
+    pub lb_start: u32,
+    /// Number of sectors in partition
+    pub lb_size: u32,
 }
 
 impl PartRecord {
@@ -292,50 +330,50 @@ impl PartRecord {
 }
 
 /// Return the 440 bytes of BIOS bootcode.
-pub fn read_bootcode(diskf: &mut fs::File) -> io::Result<[u8; 440]> {
+pub fn read_bootcode<D: DiskDevice>(device: &mut D) -> io::Result<[u8; 440]> {
     let bootcode_offset = 0;
-    let cur = diskf.seek(io::SeekFrom::Current(0))?;
-    let _ = diskf.seek(io::SeekFrom::Start(bootcode_offset))?;
+    let cur = device.seek(io::SeekFrom::Current(0))?;
+    let _ = device.seek(io::SeekFrom::Start(bootcode_offset))?;
     let mut bootcode = [0x00; 440];
-    diskf.read_exact(&mut bootcode)?;
+    device.read_exact(&mut bootcode)?;
 
-    diskf.seek(io::SeekFrom::Start(cur))?;
+    device.seek(io::SeekFrom::Start(cur))?;
     Ok(bootcode)
 }
 
 /// Write the 440 bytes of BIOS bootcode.
-pub fn write_bootcode(diskf: &mut fs::File, bootcode: &[u8; 440]) -> io::Result<()> {
+pub fn write_bootcode<D: DiskDevice>(device: &mut D, bootcode: &[u8; 440]) -> io::Result<()> {
     let bootcode_offset = 0;
-    let cur = diskf.seek(io::SeekFrom::Current(0))?;
-    let _ = diskf.seek(io::SeekFrom::Start(bootcode_offset))?;
-    diskf.write_all(bootcode)?;
-    diskf.flush()?;
+    let cur = device.seek(io::SeekFrom::Current(0))?;
+    let _ = device.seek(io::SeekFrom::Start(bootcode_offset))?;
+    device.write_all(bootcode)?;
+    device.flush()?;
 
-    diskf.seek(io::SeekFrom::Start(cur))?;
+    device.seek(io::SeekFrom::Start(cur))?;
     Ok(())
 }
 
 /// Read the 4 bytes of MBR disk signature.
-pub fn read_disk_signature(diskf: &mut fs::File) -> io::Result<[u8; 4]> {
+pub fn read_disk_signature<D: DiskDevice>(device: &mut D) -> io::Result<[u8; 4]> {
     let dsig_offset = 440;
-    let cur = diskf.seek(io::SeekFrom::Current(0))?;
-    let _ = diskf.seek(io::SeekFrom::Start(dsig_offset))?;
+    let cur = device.seek(io::SeekFrom::Current(0))?;
+    let _ = device.seek(io::SeekFrom::Start(dsig_offset))?;
     let mut dsig = [0x00; 4];
-    diskf.read_exact(&mut dsig)?;
+    device.read_exact(&mut dsig)?;
 
-    diskf.seek(io::SeekFrom::Start(cur))?;
+    device.seek(io::SeekFrom::Start(cur))?;
     Ok(dsig)
 }
 
 /// Write the 4 bytes of MBR disk signature.
 #[cfg_attr(feature = "cargo-clippy", allow(clippy::trivially_copy_pass_by_ref))]
-pub fn write_disk_signature(diskf: &mut fs::File, sig: &[u8; 4]) -> io::Result<()> {
+pub fn write_disk_signature<D: DiskDevice>(device: &mut D, sig: &[u8; 4]) -> io::Result<()> {
     let dsig_offset = 440;
-    let cur = diskf.seek(io::SeekFrom::Current(0))?;
-    let _ = diskf.seek(io::SeekFrom::Start(dsig_offset))?;
-    diskf.write_all(sig)?;
-    diskf.flush()?;
+    let cur = device.seek(io::SeekFrom::Current(0))?;
+    let _ = device.seek(io::SeekFrom::Start(dsig_offset))?;
+    device.write_all(sig)?;
+    device.flush()?;
 
-    diskf.seek(io::SeekFrom::Start(cur))?;
+    device.seek(io::SeekFrom::Start(cur))?;
     Ok(())
 }

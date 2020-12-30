@@ -38,6 +38,7 @@ pub mod pub_macros {
                 match s {
                     $(
                         $guid => Ok($upcase),
+                        stringify!($upcase) => Ok($upcase),
                     )+
                     _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
                 }

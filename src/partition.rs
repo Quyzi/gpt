@@ -7,6 +7,7 @@ use bitflags::*;
 use crc::crc32;
 use log::*;
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
@@ -17,6 +18,7 @@ use uuid;
 use crate::disk;
 use crate::header::{parse_uuid, Header};
 use crate::partition_types::Type;
+use crate::DiskDevice;
 
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
@@ -61,7 +63,7 @@ impl Partition {
     }
 
     /// Serialize this partition entry to its bytes representation.
-    fn as_bytes(&self, entry_size: u16) -> Result<Vec<u8>> {
+    fn as_bytes(&self, entry_size: u32) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(entry_size as usize);
 
         // Type GUID.
@@ -92,33 +94,75 @@ impl Partition {
         }
 
         // Resize buffer to exact entry size.
-        buf.resize(entry_size as usize, 0x00);
+        buf.resize(usize::try_from(entry_size).unwrap(), 0x00);
 
         Ok(buf)
     }
 
-    /// Write the partition entry to the partitions area and update crc32 for the Header.
+    /// Write the partition entry to the partitions area in the given file.
+    /// NOTE: does not update partitions array crc32 in the headers!
     pub fn write(
         &self,
         p: &Path,
-        partition_id: u64,
+        partition_index: u64,
         start_lba: u64,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<()> {
-        debug!("writing partition to: {}", p.display());
+        let mut file = OpenOptions::new().write(true).read(true).open(p)?;
+        self.write_to_device(&mut file, partition_index, start_lba, lb_size, 128)
+    }
+
+    /// Write the partition entry to the partitions area in the given device.
+    /// NOTE: does not update partitions array crc32 in the headers!
+    pub fn write_to_device<D: DiskDevice>(
+        &self,
+        device: &mut D,
+        partition_index: u64,
+        start_lba: u64,
+        lb_size: disk::LogicalBlockSize,
+        bytes_per_partition: u32,
+    ) -> Result<()> {
+        debug!("writing partition to: {:?}", device);
         let pstart = start_lba
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
-        let mut file = OpenOptions::new().write(true).read(true).open(p)?;
-        // The offset is 128 * partition_id
-        let offset = partition_id
-            .checked_mul(128)
+        // The offset is bytes_per_partition * partition_index
+        let offset = partition_index
+            .checked_mul(u64::from(bytes_per_partition))
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
         trace!("seeking to partition start: {}", pstart + offset);
-        file.seek(SeekFrom::Start(pstart + offset))?;
-        trace!("writing {:?}", &self.as_bytes(128));
-        file.write_all(&self.as_bytes(128)?)?;
+        device.seek(SeekFrom::Start(pstart + offset))?;
+        trace!("writing {:?}", &self.as_bytes(bytes_per_partition));
+        device.write_all(&self.as_bytes(bytes_per_partition)?)?;
 
+        Ok(())
+    }
+
+    /// Write empty partition entries starting at the given index in the partition array
+    /// for the given number of entries...
+    pub fn write_zero_entries_to_device<D: DiskDevice>(
+        device: &mut D,
+        starting_partition_index: u64,
+        number_entries: u64,
+        start_lba: u64,
+        lb_size: disk::LogicalBlockSize,
+        bytes_per_partition: u32,
+    ) -> Result<()> {
+        trace!("writing {} unused partition entries starting at index {}, start_lba={}",
+            number_entries, starting_partition_index, start_lba);
+        let pstart = start_lba
+            .checked_mul(lb_size.into())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - start offset"))?;
+        let offset = starting_partition_index
+            .checked_mul(u64::from(bytes_per_partition))
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow"))?;
+        trace!("seeking to starting partition start: {}", pstart + offset);
+        device.seek(SeekFrom::Start(pstart + offset))?;
+        let bytes_to_zero = u64::from(bytes_per_partition)
+            .checked_mul(number_entries)
+            .and_then(|x| usize::try_from(x).ok())
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - bytes to zero"))?;
+        device.write_all(&vec![0u8; bytes_to_zero])?;
         Ok(())
     }
 
