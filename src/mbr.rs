@@ -168,18 +168,26 @@ impl ProtectiveMBR {
         self
     }
 
-    /// Returns the given partition (0..=3). Panics if the partition index is invalid.
-    pub fn partition(&self, partition_index: usize) -> PartRecord {
-        self.partitions[partition_index]
+    /// Returns the given partition (0..=3) or None if the partition index is invalid.
+    pub fn partition(&self, partition_index: usize) -> Option<PartRecord> {
+        if partition_index >= self.partitions.len() {
+            None
+        } else {
+            Some(self.partitions[partition_index])
+        }
     }
 
-    /// Set the data for the given partition. Panics if the index is invalid.
-    /// Returns the previous partition record.
+    /// Set the data for the given partition.
+    /// Returns the previous partition record or None if the partition index is invalid.
     ///
     /// This only changes the in-memory state, without overwriting
     /// any on-disk data.
-    pub fn set_partition(&mut self, partition_index: usize, partition: PartRecord) -> PartRecord {
-        std::mem::replace(&mut self.partitions[partition_index], partition)
+    pub fn set_partition(&mut self, partition_index: usize, partition: PartRecord) -> Option<PartRecord> {
+        if partition_index >= self.partitions.len() {
+            None
+        } else {
+            Some(std::mem::replace(&mut self.partitions[partition_index], partition))
+        }
     }
 
     /// Write a protective MBR to LBA0, overwriting any existing data.
