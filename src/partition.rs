@@ -13,7 +13,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::str::FromStr;
-use uuid;
 
 use crate::disk;
 use crate::header::{parse_uuid, Header};
