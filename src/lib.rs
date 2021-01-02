@@ -252,13 +252,13 @@ impl<'a> GptDisk<'a> {
                     partition_id,
                     part_type,
                     starting_lba,
-                    starting_lba + size_lba - 1 as u64
+                    starting_lba + size_lba - 1_u64
                 );
                 let part = partition::Partition {
                     part_type_guid: part_type,
                     part_guid: uuid::Uuid::new_v4(),
                     first_lba: starting_lba,
-                    last_lba: starting_lba + size_lba - 1 as u64,
+                    last_lba: starting_lba + size_lba - 1_u64,
                     flags,
                     name: name.to_string(),
                 };
@@ -317,7 +317,7 @@ impl<'a> GptDisk<'a> {
             }
             disk_positions.push(header.last_usable);
             trace!("last_usable: {}", header.last_usable);
-            disk_positions.sort();
+            disk_positions.sort_unstable();
 
             return disk_positions
                 // Walk through the LBA's in chunks of 2 (ending, starting).
