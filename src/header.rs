@@ -181,7 +181,7 @@ impl Header {
         trace!("bytes before checksum: {:?}", bytes);
 
         // Calculate the CRC32 from the byte array
-        let checksum = calculate_crc32(&bytes)?;
+        let checksum = calculate_crc32(&bytes);
         trace!("computed header CRC32: {:#x}", checksum);
 
         // Write it to disk in 1 shot
@@ -353,7 +353,7 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
         *crc_byte = 0;
     }
-    let c = calculate_crc32(&hdr_crc)?;
+    let c = calculate_crc32(&hdr_crc);
     trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
     if c == h.crc32 {
         Ok(h)
@@ -388,12 +388,12 @@ pub(crate) fn find_backup_lba<D: Read + Seek>(
     Ok(bak_lba)
 }
 
-fn calculate_crc32(b: &[u8]) -> Result<u32> {
+fn calculate_crc32(b: &[u8]) -> u32 {
     let mut digest = crc32::Digest::new(crc32::IEEE);
     trace!("Writing buffer to digest calculator");
     digest.write(b);
 
-    Ok(digest.sum32())
+    digest.sum32()
 }
 
 pub(crate) fn partentry_checksum<D: Read + Seek>(
@@ -420,7 +420,7 @@ pub(crate) fn partentry_checksum<D: Read + Seek>(
 
     //trace!("Buffer before checksum: {:?}", buf);
     // Compute CRC32 over all table bits.
-    calculate_crc32(&buf)
+    Ok(calculate_crc32(&buf))
 }
 
 /// A helper function to create a new header and write it to disk.
