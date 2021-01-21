@@ -421,9 +421,30 @@ impl<'a> GptDisk<'a> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
         let h1 = header::Header::compute_new(
-            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size)?;
+            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size, None)?;
         let h2 = header::Header::compute_new(
-            false, &pp, self.guid, bak, &self.backup_header, self.config.lb_size)?;
+            false, &pp, self.guid, bak, &self.backup_header, self.config.lb_size, None)?;
+        self.primary_header = Some(h1);
+        self.backup_header = Some(h2);
+        self.partitions = pp;
+        self.config.initialized = true;
+        Ok(self)
+    }
+
+    /// Update current partition table.
+    /// Allows for changing the partition count, use with caution. 
+    /// No changes are recorded to disk until `write()` is called.
+    pub fn update_partitions_embedded(
+        &mut self,
+        pp: BTreeMap<u32, partition::Partition>,
+        num_parts: u32,
+    ) -> io::Result<&Self> {
+        // TODO(lucab): validate partitions.
+        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
+        let h1 = header::Header::compute_new(
+            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size, Some(num_parts))?;
+        let h2 = header::Header::compute_new(
+            false, &pp, self.guid, bak, &self.backup_header, self.config.lb_size, Some(num_parts))?;
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
@@ -537,6 +558,7 @@ impl<'a> GptDisk<'a> {
             bak,
             &self.primary_header,
             self.config.lb_size,
+            None,
         )?;
         let new_primary_header = header::Header::compute_new(
             true,
@@ -545,6 +567,7 @@ impl<'a> GptDisk<'a> {
             bak,
             &self.backup_header,
             self.config.lb_size,
+            None,
         )?;
         debug!("Writing backup header");
         new_backup_header.write_backup(&mut self.device, self.config.lb_size)?;
