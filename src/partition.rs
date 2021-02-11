@@ -33,9 +33,9 @@ bitflags! {
 
 /// A partition entry in a GPT partition table.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Partition {
+pub struct Partition<'a> {
     /// GUID of the partition type.
-    pub part_type_guid: Type,
+    pub part_type_guid: Type<'a>,
     /// UUID of the partition.
     pub part_guid: uuid::Uuid,
     /// First LBA of the partition.
@@ -48,7 +48,7 @@ pub struct Partition {
     pub name: String,
 }
 
-impl Partition {
+impl Partition<'_> {
     /// Create a partition entry of type "unused", whose bytes are all 0s.
     pub fn zero() -> Self {
         Self {
@@ -66,7 +66,7 @@ impl Partition {
         let mut buf: Vec<u8> = Vec::with_capacity(entry_size as usize);
 
         // Type GUID.
-        let tyguid = uuid::Uuid::from_str(self.part_type_guid.guid).map_err(|e| {
+        let tyguid = uuid::Uuid::from_str(&self.part_type_guid.guid).map_err(|e| {
             Error::new(ErrorKind::Other, format!("Invalid guid: {}", e.to_string()))
         })?;
         let tyguid = tyguid.as_fields();
@@ -202,7 +202,7 @@ impl Partition {
     }
 }
 
-impl fmt::Display for Partition {
+impl fmt::Display for Partition<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -247,22 +247,22 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
 /// let partitions = partition::read_partitions(diskpath, &hdr, lb_size).unwrap();
 /// println!("{:#?}", partitions);
 /// ```
-pub fn read_partitions(
+pub fn read_partitions<'a>(
     path: &Path,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
-) -> Result<BTreeMap<u32, Partition>> {
+) -> Result<BTreeMap<u32, Partition<'a>>> {
     debug!("reading partitions from file: {}", path.display());
     let mut file = File::open(path)?;
     file_read_partitions(&mut file, header, lb_size)
 }
 
 /// Read a GPT partition table from an open `Read` + `Seek` object.
-pub fn file_read_partitions<D: Read + Seek>(
+pub fn file_read_partitions<'a, D: Read + Seek>(
     file: &mut D,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
-) -> Result<BTreeMap<u32, Partition>> {
+) -> Result<BTreeMap<u32, Partition<'a>>> {
     let pstart = header
         .part_start
         .checked_mul(lb_size.into())

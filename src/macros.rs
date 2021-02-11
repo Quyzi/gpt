@@ -27,20 +27,29 @@ pub mod pub_macros {
         $(
             $(#[$docs])*
             pub const $upcase: Type = Type {
-                guid: $guid,
+                guid: Cow::Borrowed($guid),
                 os: $os,
             };
         )+
 
-        impl FromStr for Type {
-            type Err = String;
+        impl FromStr for Type<'_> {
+            type Err = uuid::Error;
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 match s {
                     $(
                         $guid => Ok($upcase),
                         stringify!($upcase) => Ok($upcase),
                     )+
-                    _ => Err("Invalid or unknown Partition Type GUID.".to_string()),
+                    _ => {
+                        // Make sure this is a valid UUID.
+                        let _uuid = Uuid::parse_str(s)?;
+
+                        Ok(Type {
+                            guid: Cow::Owned(s.to_owned().to_uppercase()),
+                            os: OperatingSystem::Unknown,
+                        })
+
+                    }
                 }
             }
         }

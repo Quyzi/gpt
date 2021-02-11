@@ -207,16 +207,16 @@ impl Default for GptConfig {
 
 /// A GPT disk backed by an arbitrary device.
 #[derive(Debug)]
-pub struct GptDisk<'a> {
+pub struct GptDisk<'a, 'b> {
     config: GptConfig,
     device: DiskDeviceObject<'a>,
     guid: uuid::Uuid,
     primary_header: Option<header::Header>,
     backup_header: Option<header::Header>,
-    partitions: BTreeMap<u32, partition::Partition>,
+    partitions: BTreeMap<u32, partition::Partition<'b>>,
 }
 
-impl<'a> GptDisk<'a> {
+impl<'a, 'b> GptDisk<'a, 'b> {
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
     /// Returns the new partition id if there was sufficient room
@@ -225,7 +225,7 @@ impl<'a> GptDisk<'a> {
         &mut self,
         name: &str,
         size: u64,
-        part_type: partition_types::Type,
+        part_type: partition_types::Type<'b>,
         flags: u64,
     ) -> io::Result<u32> {
         let size_lba = match size.checked_div(self.config.lb_size.into()) {
@@ -369,7 +369,7 @@ impl<'a> GptDisk<'a> {
     }
 
     /// Retrieve partition entries.
-    pub fn partitions(&self) -> &BTreeMap<u32, partition::Partition> {
+    pub fn partitions<'c>(&'c self) -> &'c BTreeMap<u32, partition::Partition<'b>> {
         &self.partitions
     }
 
@@ -416,7 +416,7 @@ impl<'a> GptDisk<'a> {
     /// No changes are recorded to disk until `write()` is called.
     pub fn update_partitions(
         &mut self,
-        pp: BTreeMap<u32, partition::Partition>,
+        pp: BTreeMap<u32, partition::Partition<'b>>,
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;

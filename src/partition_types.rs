@@ -1,12 +1,14 @@
 //! Parition type constants
 use log::trace;
+use std::borrow::Cow;
 use std::str::FromStr;
+use uuid::Uuid;
 
 /// The type
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Type {
+pub struct Type<'a> {
     /// Type-GUID for a GPT partition.
-    pub guid: &'static str,
+    pub guid: Cow<'a, str>,
     /// well-known OS label for this type-GUID.
     pub os: OperatingSystem,
 }
@@ -60,6 +62,8 @@ pub enum OperatingSystem {
     Windows,
     /// QNX
     QNX,
+    /// Unrecognised OS
+    Unknown,
 }
 
 impl FromStr for OperatingSystem {
@@ -104,9 +108,19 @@ fn test_partition_from_name() {
     assert_eq!(t, LINUX_FS);
 }
 
-impl Type {
+#[test]
+fn test_partition_fromstr_unknown_guid() {
+    let p = "41d0e340-57e3-954e-8c1e-17ecac44cff5";
+    let t = Type::from_str(p).unwrap();
+    println!("result: {:?}", t);
+    let expected: Cow<'_, str> = Cow::Owned(p.to_string().to_uppercase());
+    assert_eq!(t.guid, expected);
+    assert_eq!(t.os, OperatingSystem::Unknown);
+}
+
+impl Type<'_> {
     /// Lookup a partition type by uuid
-    pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, String> {
+    pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, uuid::Error> {
         let uuid_str = u.to_hyphenated().to_string().to_uppercase();
         trace!("looking up partition type guid {}", uuid_str);
         Type::from_str(&uuid_str)
@@ -116,7 +130,7 @@ impl Type {
     pub fn from_name(name: &str) -> Result<Self, String> {
         let name_str = name.to_uppercase();
         trace!("looking up partition type by name {}", name_str);
-        Type::from_str(&name_str)
+        Type::from_str(&name_str).map_err(|_| "Unknown partition type name".to_owned())
     }
 }
 
