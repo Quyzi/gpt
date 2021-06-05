@@ -292,9 +292,7 @@ pub fn file_read_partitions<D: Read + Seek>(
 
             let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
             let p = Partition {
-                part_type_guid: Type::from_uuid(&type_guid).map_err(|e| {
-                    Error::new(ErrorKind::Other, format!("Unknown Partition Type: {}", e))
-                })?,
+                part_type_guid: Type::from_uuid(&type_guid).unwrap_or_default(),
                 part_guid,
                 first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
                 last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
