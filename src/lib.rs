@@ -431,6 +431,23 @@ impl<'a> GptDisk<'a> {
         Ok(self)
     }
 
+    /// Update current partition table without touching backups
+    ///
+    /// No changes are recorded to disk until `write()` is called.
+    pub fn update_partitions_safe(
+        &mut self,
+        pp: BTreeMap<u32, partition::Partition>,
+    ) -> io::Result<&Self> {
+        // TODO(lucab): validate partitions.
+        let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
+        let h1 = header::Header::compute_new(
+            true, &pp, self.guid, bak, &self.primary_header, self.config.lb_size, None)?;
+        self.primary_header = Some(h1);
+        self.partitions = pp;
+        self.config.initialized = true;
+        Ok(self)
+    }
+
     /// Update current partition table.
     /// Allows for changing the partition count, use with caution. 
     /// No changes are recorded to disk until `write()` is called.
