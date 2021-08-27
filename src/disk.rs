@@ -61,11 +61,10 @@ impl fmt::Display for LogicalBlockSize {
 /// ## Example
 ///
 /// ```rust,no_run
-/// let diskpath = std::path::Path::new("/dev/sdz");
-/// let gpt_disk = gpt::disk::read_disk(diskpath).unwrap();
+/// let gpt_disk = gpt::disk::read_disk("/dev/sdz").unwrap();
 /// println!("{:#?}", gpt_disk);
 /// ```
-pub fn read_disk(diskpath: &path::Path) -> io::Result<GptDisk> {
+pub fn read_disk(diskpath: impl AsRef<path::Path>) -> io::Result<GptDisk<'static>> {
     let cfg = GptConfig::new();
     cfg.open(diskpath)
 }

@@ -136,7 +136,7 @@ impl GptConfig {
 
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
-    pub fn open(self, diskpath: &path::Path) -> io::Result<GptDisk> {
+    pub fn open(self, diskpath: impl AsRef<path::Path>) -> io::Result<GptDisk<'static>> {
         let file = Box::new(fs::OpenOptions::new()
             .write(self.writable)
             .read(true)

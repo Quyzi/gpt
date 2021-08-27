@@ -296,7 +296,10 @@ impl fmt::Display for Header {
 ///
 /// let h = read_header(diskpath, lb_size).unwrap();
 /// ```
-pub fn read_header(path: &Path, sector_size: disk::LogicalBlockSize) -> Result<Header> {
+pub fn read_header(
+    path: impl AsRef<Path>,
+    sector_size: disk::LogicalBlockSize
+) -> Result<Header> {
     let mut file = File::open(path)?;
     read_primary_header(&mut file, sector_size)
 }
@@ -450,11 +453,11 @@ pub(crate) fn partentry_checksum<D: Read + Seek>(
 // TODO: Move this to Header::new() and Header::write to write it
 // that will match the Partition::write() API
 pub fn write_header(
-    p: &Path,
+    p: impl AsRef<Path>,
     uuid: Option<uuid::Uuid>,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<uuid::Uuid> {
-    debug!("opening {} for writing", p.display());
+    debug!("opening {} for writing", p.as_ref().display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
     let bak = find_backup_lba(&mut file, sector_size)?;
     let guid = match uuid {
