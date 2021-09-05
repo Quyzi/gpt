@@ -53,7 +53,7 @@ fn test_gptdisk_linux_01() {
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_start, 0x22 * 512);
     let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
-    assert_eq!(p1_len, (0x3E - 0x22) * 512);
+    assert_eq!(p1_len, (0x3E - 0x22 + 1) * 512);
 }
 
 #[test]
