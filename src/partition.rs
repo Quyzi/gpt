@@ -166,11 +166,15 @@ impl Partition {
     }
 
     /// Return the length (in bytes) of this partition.
+    /// Partition size is calculated as (last_lba + 1 - first_lba) * block_size
+    /// Bounds are inclusive, meaning we add one to account for the full last logical block
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
         let len = self
             .last_lba
             .checked_sub(self.first_lba)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
+            .checked_add(1)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - sectors"))?
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - bytes"))?;
         Ok(len)
