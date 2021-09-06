@@ -120,8 +120,8 @@ fn test_create_simple_on_device() {
     gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
     // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
     // Add a few partitions to demonstrate how...
-    gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0).unwrap();
-    gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0).unwrap();
+    gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None).unwrap();
+    gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None).unwrap();
     let mut mem_device = gdisk.write().unwrap();
     mem_device.seek(std::io::SeekFrom::Start(0)).unwrap();
     let mut final_bytes = vec![0u8; TOTAL_BYTES];
@@ -167,8 +167,8 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
 
     let part1_bytes = 3 * lb_bytes;
-    gdisk.add_partition("test1", part1_bytes, gpt::partition_types::BASIC, 0).unwrap();
-    gdisk.add_partition("test2", (data_lbs * lb_bytes) - part1_bytes, gpt::partition_types::LINUX_FS, 0).unwrap();
+    gdisk.add_partition("test1", part1_bytes, gpt::partition_types::BASIC, 0, None).unwrap();
+    gdisk.add_partition("test2", (data_lbs * lb_bytes) - part1_bytes, gpt::partition_types::LINUX_FS, 0, None).unwrap();
 
     // Write out the table and get back the memory buffer so we can validate its contents.
     let mut mem_device = gdisk.write().unwrap();
