@@ -128,6 +128,42 @@ fn test_create_simple_on_device() {
     mem_device.read_exact(&mut final_bytes).unwrap();
 }
 
+fn test_create_aligned_on_device() {
+    const TOTAL_BYTES: usize = 48 * 1024; // 48KiB, 96 Blocks
+    const ALIGNMENT: u64 = 4096 / 512; // 8 LBA alignment
+
+    let mut mem_device = Box::new(std::io::Cursor::new(vec![0u8; TOTAL_BYTES]));
+
+    let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(u32::try_from((TOTAL_BYTES / 512) - 1).unwrap_or(0xFF_FF_FF_FF));
+    mbr.overwrite_lba0(&mut mem_device).unwrap();
+
+    let mut gdisk = gpt::GptConfig::default()
+        .initialized(false)
+        .writable(true)
+        .logical_block_size(disk::LogicalBlockSize::Lb512)
+        .create_from_device(mem_device, None)
+        .unwrap();
+    gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
+
+    // 00-33: MBR, GPT Header / Info
+    // 40-51: Part 1 - 0.75 disk pages
+    // 56-61: Part 2 - 0.75 disk pagess
+    // 62-95: GPT Backup
+    assert!(gdisk.add_partition("test1", 6 * 1024, gpt::partition_types::BASIC, 0, Some(ALIGNMENT)).is_ok(),
+            "unexpected error writing first aligned partition: should start at LBA 40, end at 59");
+
+    assert!(gdisk.add_partition("test2", 8 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_err(),
+            "expected error writing over-sized second aligned partition: impossible addressing starting at LBA 56 ending at LBA 63 shouldn't fit with GPT backup");
+
+    assert!(gdisk.add_partition("test2", 6 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_ok(),
+            "unexpected error writing second aligned partition: should start at LBA 56, end at 61");
+
+    let mut mem_device = gdisk.write().unwrap();
+    let mut final_bytes = vec![0u8; TOTAL_BYTES];
+    mem_device.read_exact(&mut final_bytes).unwrap();
+
+}
+
 fn t_read_bytes(device: &mut gpt::DiskDeviceObject, offset: u64, bytes: usize) -> Vec<u8> {
     let mut buf = vec![0u8; bytes];
     device.seek(std::io::SeekFrom::Start(offset)).unwrap();

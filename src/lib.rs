@@ -241,8 +241,6 @@ impl<'a> GptDisk<'a> {
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
-            debug!("starting_lba {}, length {}", starting_lba, length);
-
             // Get the distance between the starting LBA of this section and the next aligned LBA
             // We don't need to do any checked math here because we guarantee that with `(A % B)`,
             // `A` will always be between 0 and `B-1`.
@@ -250,6 +248,8 @@ impl<'a> GptDisk<'a> {
                 Some(alignment) => (alignment - (starting_lba % alignment)) % alignment,
                 None => 0_u64,
             };
+
+            debug!("starting_lba {}, length {}, alignment_offset_lba {}", starting_lba, length, alignment_offset_lba);
 
             if length >= (alignment_offset_lba + size_lba - 1) {
                 let starting_lba= starting_lba + alignment_offset_lba;
