@@ -156,15 +156,42 @@ impl GptConfig {
         }
 
         // Proper GPT disk, fully inspect its layout.
-        let h1 = header::read_primary_header(&mut device, self.lb_size)?;
-        let h2 = header::read_backup_header(&mut device, self.lb_size)?;
-        let table = partition::file_read_partitions(&mut device, &h1, self.lb_size)?;
+        let h1_res = header::read_primary_header(&mut device, self.lb_size);
+        let h2_res = header::read_backup_header(&mut device, self.lb_size);
+
+        let h1;
+        let h2;
+
+        // allow one header to be faulty
+        let header = match (h1_res, h2_res) {
+            (Err(h1_e), Err(_)) => return Err(h1_e),
+            (Ok(header), Err(h2_e)) => {
+                warn!("backup header faulty {:?}", h2_e);
+                h1 = Some(header);
+                h2 = None;
+                h1.as_ref().unwrap()
+            },
+            (Err(h1_e), Ok(header)) => {
+                warn!("primary header faulty {:?}", h1_e);
+                h1 = None;
+                h2 = Some(header);
+                h2.as_ref().unwrap()
+            },
+            // both are ok
+            (a, b) => {
+                h1 = a.ok();
+                h2 = b.ok();
+                h1.as_ref().unwrap()
+            }
+        };
+
+        let table = partition::file_read_partitions(&mut device, header, self.lb_size)?;
         let disk = GptDisk {
             config: self,
             device,
-            guid: h1.disk_guid,
-            primary_header: Some(h1),
-            backup_header: Some(h2),
+            guid: header.disk_guid,
+            primary_header: h1,
+            backup_header: h2,
             partitions: table,
         };
         debug!("disk: {:?}", disk);
