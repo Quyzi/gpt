@@ -248,11 +248,11 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
 /// println!("{:#?}", partitions);
 /// ```
 pub fn read_partitions(
-    path: &Path,
+    path: impl AsRef<Path>,
     header: &Header,
     lb_size: disk::LogicalBlockSize,
 ) -> Result<BTreeMap<u32, Partition>> {
-    debug!("reading partitions from file: {}", path.display());
+    debug!("reading partitions from file: {}", path.as_ref().display());
     let mut file = File::open(path)?;
     file_read_partitions(&mut file, header, lb_size)
 }
