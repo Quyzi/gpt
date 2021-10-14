@@ -15,18 +15,18 @@ pub enum LogicalBlockSize {
     Lb4096,
 }
 
-impl Into<u64> for LogicalBlockSize {
-    fn into(self) -> u64 {
-        match self {
+impl From<LogicalBlockSize> for u64 {
+    fn from(lb: LogicalBlockSize) -> u64 {
+        match lb {
             LogicalBlockSize::Lb512 => 512,
             LogicalBlockSize::Lb4096 => 4096,
         }
     }
 }
 
-impl Into<usize> for LogicalBlockSize {
-    fn into(self) -> usize {
-        match self {
+impl From<LogicalBlockSize> for usize {
+    fn from(lb: LogicalBlockSize) -> usize {
+        match lb {
             LogicalBlockSize::Lb512 => 512,
             LogicalBlockSize::Lb4096 => 4096,
         }

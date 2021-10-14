@@ -161,7 +161,7 @@ impl Partition {
             .checked_mul(number_entries)
             .and_then(|x| usize::try_from(x).ok())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition overflow - bytes to zero"))?;
-        device.write_all(&vec![0u8; bytes_to_zero])?;
+        device.write_all(&vec![0_u8; bytes_to_zero])?;
         Ok(())
     }
 
@@ -227,11 +227,10 @@ fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
     let mut namebytes: Vec<u16> = Vec::new();
     for _ in 0..36 {
         let b = u16::from_le_bytes(read_exact_buff!(bbuff, rdr, 2));
-        if b != 0 {
-            namebytes.push(b);
-        } else {
-	    break;
-	}
+        if b == 0 {
+            break
+        }
+        namebytes.push(b);
     }
 
     Ok(String::from_utf16_lossy(&namebytes))
@@ -336,11 +335,11 @@ mod tests {
 
         let b128 = p0.as_bytes(128).unwrap();
         assert_eq!(b128.len(), 128);
-        assert_eq!(b128, vec![0u8; 128]);
+        assert_eq!(b128, vec![0_u8; 128]);
 
         let b256 = p0.as_bytes(256).unwrap();
         assert_eq!(b256.len(), 256);
-        assert_eq!(b256, vec![0u8; 256]);
+        assert_eq!(b256, vec![0_u8; 256]);
     }
 
     #[test]

@@ -291,7 +291,7 @@ impl<'a> GptDisk<'a> {
         if let Some(part_guid) = partguid {
             for (key, partition) in &self.partitions.clone() {
                 if partition.part_guid == part_guid {
-                    if let Some(partition_id) = self.partitions.remove(&key) {
+                    if let Some(partition_id) = self.partitions.remove(key) {
                         debug!("Removing partition number {}", partition_id);
                     }
                     return Ok(*key);
@@ -324,10 +324,10 @@ impl<'a> GptDisk<'a> {
                 .chunks(2)
                 // Add 1 to the ending and then subtract the starting if NOT the first usable sector
                 .map(|p| {
-                    if p[0] != header.first_usable {
-                        (p[0] + 1, p[1].saturating_sub(p[0] + 1))
-                    } else {
+                    if p[0] == header.first_usable {
                         (p[0], p[1].saturating_sub(p[0]))
+                    } else {
+                        (p[0] + 1, p[1].saturating_sub(p[0] + 1))
                     }
                 })
                 .collect();
@@ -486,7 +486,7 @@ impl<'a> GptDisk<'a> {
         let backup_header = self.backup_header.clone();
 
         // Write all of the used partitions at the start of the partition array.
-        let mut next_partition_index = 0u64;
+        let mut next_partition_index = 0_u64;
         for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
             // don't allow us to overflow partition array...
             if next_partition_index >= u64::from(primary_header.num_parts) {
