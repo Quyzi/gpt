@@ -72,14 +72,14 @@ fn test_gptdisk_linux_01_write_fidelity_with_device() {
     // Test that we can write this test partition table to an in-memory buffer
     // instead, then load the results and verify they should be the same.
     let image_size = usize::try_from(std::fs::metadata(diskpath).unwrap().len()).unwrap();
-    let mem_device = Box::new(std::io::Cursor::new(vec![0u8; image_size]));
+    let mem_device = Box::new(std::io::Cursor::new(vec![0_u8; image_size]));
     gdisk.update_disk_device(mem_device, true);
     let mut mem_device = gdisk.write().unwrap();
 
     // Write this memory buffer to a temp file, and load from the file to verify
     // that we wrote the data to the memory buffer correctly.
     let mut tempdisk = NamedTempFile::new().expect("failed to create tempfile disk");
-    let mut gpt_in_mem = vec![0u8; image_size];
+    let mut gpt_in_mem = vec![0_u8; image_size];
     let _ = mem_device.seek(SeekFrom::Start(0)).unwrap();
     mem_device.read_exact(&mut gpt_in_mem).unwrap();
     tempdisk.write_all(&gpt_in_mem).unwrap();
@@ -103,7 +103,7 @@ fn test_gptdisk_linux_01_write_fidelity_with_device() {
 #[test]
 fn test_create_simple_on_device() {
     const TOTAL_BYTES: usize = 1024 * 64;
-    let mut mem_device = Box::new(std::io::Cursor::new(vec![0u8; TOTAL_BYTES]));
+    let mut mem_device = Box::new(std::io::Cursor::new(vec![0_u8; TOTAL_BYTES]));
 
     // Create a protective MBR at LBA0
     let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(
@@ -124,7 +124,7 @@ fn test_create_simple_on_device() {
     gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None).unwrap();
     let mut mem_device = gdisk.write().unwrap();
     mem_device.seek(std::io::SeekFrom::Start(0)).unwrap();
-    let mut final_bytes = vec![0u8; TOTAL_BYTES];
+    let mut final_bytes = vec![0_u8; TOTAL_BYTES];
     mem_device.read_exact(&mut final_bytes).unwrap();
 }
 
@@ -165,7 +165,7 @@ fn test_create_aligned_on_device() {
 }
 
 fn t_read_bytes(device: &mut gpt::DiskDeviceObject, offset: u64, bytes: usize) -> Vec<u8> {
-    let mut buf = vec![0u8; bytes];
+    let mut buf = vec![0_u8; bytes];
     device.seek(std::io::SeekFrom::Start(offset)).unwrap();
     device.read_exact(&mut buf).unwrap();
     buf
@@ -213,13 +213,13 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     // Should have overwritten the header
     assert_ne!(t_read_bytes(&mut mem_device, lb_bytes, 92), vec![255u8; 92]);
     // According to the spec, the rest of the sector containing the header should be zeros.
-    assert_eq!(t_read_bytes(&mut mem_device, lb_bytes + 92, lb_bytes_usize - 92), vec![0u8; lb_bytes_usize - 92]);
+    assert_eq!(t_read_bytes(&mut mem_device, lb_bytes + 92, lb_bytes_usize - 92), vec![0_u8; lb_bytes_usize - 92]);
     // The first two partition entries should have been overwritten with non-zero data.
     let first_two = t_read_bytes(&mut mem_device, 2 * lb_bytes, 128 * 2);
     assert_ne!(first_two, vec![255u8; 128 * 2]);
-    assert_ne!(first_two, vec![0u8; 128 * 2]);
+    assert_ne!(first_two, vec![0_u8; 128 * 2]);
     // The remaining entries should have been overwritten with all zeros.
-    assert_eq!(t_read_bytes(&mut mem_device, (2 * lb_bytes) + (128 * 2), 126 * 128), vec![0u8; 126 * 128]);
+    assert_eq!(t_read_bytes(&mut mem_device, (2 * lb_bytes) + (128 * 2), 126 * 128), vec![0_u8; 126 * 128]);
 
     // The data area should be completely undisturbed...
     let data_bytes = (data_lbs as usize) * lb_bytes_usize;
@@ -229,14 +229,14 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     // The remaining entries should have been overwritten with all zeros.
     let first_two = t_read_bytes(&mut mem_device, (header_lbs + data_lbs) * lb_bytes, 128 * 2);
     assert_ne!(first_two, vec![255u8; 128 * 2]);
-    assert_ne!(first_two, vec![0u8; 128 * 2]);
+    assert_ne!(first_two, vec![0_u8; 128 * 2]);
     // The remaining entries should have been overwritten with all zeros.
-    assert_eq!(t_read_bytes(&mut mem_device, (2 * lb_bytes) + (128 * 2), 126 * 128), vec![0u8; 126 * 128]);
+    assert_eq!(t_read_bytes(&mut mem_device, (2 * lb_bytes) + (128 * 2), 126 * 128), vec![0_u8; 126 * 128]);
 
     // Should have overwritten the backup header
     assert_ne!(t_read_bytes(&mut mem_device, total_bytes as u64 - lb_bytes, 92), vec![255u8; 92]);
     // Remainder of the sector with the backup header should be all zeros
-    assert_eq!(t_read_bytes(&mut mem_device, total_bytes as u64 - lb_bytes + 92, lb_bytes_usize - 92), vec![0u8; lb_bytes_usize - 92]);
+    assert_eq!(t_read_bytes(&mut mem_device, total_bytes as u64 - lb_bytes + 92, lb_bytes_usize - 92), vec![0_u8; lb_bytes_usize - 92]);
 }
 
 #[test]
