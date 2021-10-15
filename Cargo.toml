@@ -1,6 +1,6 @@
 [package]
 name = "gpt"
-version = "2.0.1"
+version = "2.1.0"
 description = "A pure-Rust library to work with GPT partition tables."
 documentation = "https://docs.rs/gpt"
 authors = ["Chris Ober <obercgit@gmail.com>", "Chris Holcombe <xfactor973@gmail.com>", "Luca Bruno <lucab@debian.org>"]
@@ -9,11 +9,11 @@ homepage = "https://github.com/Quyzi/gpt"
 edition = "2018"
 
 [dependencies]
-bitflags = "~1.2"
-crc = "~1.8"
-log = "~0.4"
-uuid = { version = "~0.8", features = ["v4"] }
+bitflags = "^1.2"
+crc = "^1.8"
+log = "^0.4"
+uuid = { version = "^0.8", features = ["v4"] }
 
 [dev-dependencies]
-simplelog = "~0.8"
-tempfile = "~3.0"
+simplelog = "^0.8"
+tempfile = "^3.0"
