@@ -166,11 +166,15 @@ impl Partition {
     }
 
     /// Return the length (in bytes) of this partition.
+    /// Partition size is calculated as (last_lba + 1 - first_lba) * block_size
+    /// Bounds are inclusive, meaning we add one to account for the full last logical block
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
         let len = self
             .last_lba
             .checked_sub(self.first_lba)
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
+            .checked_add(1)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - sectors"))?
             .checked_mul(lb_size.into())
             .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - bytes"))?;
         Ok(len)
@@ -347,8 +351,12 @@ mod tests {
             let b512len = p0.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
             let b4096len = p0.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
 
-            assert_eq!(b512len, 0);
-            assert_eq!(b4096len, 0);
+            // The lower bound of partition size is equal to the logical block size.
+            // This is because the bounds for the partition size are inclusive and use
+            // logical block addressing, meaning that even when the lba_start and lba_end
+            // are set to the same block, you still have the space within that block.
+            assert_eq!(b512len, 512);
+            assert_eq!(b4096len, 4096);
         }
 
         {
@@ -371,7 +379,7 @@ mod tests {
             // Positive value.
             let mut p3 = partition::Partition::zero();
             p3.first_lba = 2;
-            p3.last_lba = 4;
+            p3.last_lba = 3;
             let b512len = p3.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
             let b4096len = p3.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
 

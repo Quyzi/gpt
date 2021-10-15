@@ -26,6 +26,7 @@
 //!         100,
 //!         gpt::partition_types::LINUX_FS,
 //!         0,
+//!         None
 //!     );
 //!     disk.write().unwrap();
 //! }
@@ -54,9 +55,9 @@
 //!
 //!     // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
 //!     // Add a few partitions to demonstrate how...
-//!     gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0)
+//!     gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None)
 //!         .expect("failed to add test1 partition");
-//!     gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0)
+//!     gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
 //!         .expect("failed to add test2 partition");
 //!     // Write the partition table and take ownership of
 //!     // the underlying memory buffer-backed block device
@@ -227,24 +228,31 @@ impl<'a> GptDisk<'a> {
         size: u64,
         part_type: partition_types::Type,
         flags: u64,
+        part_alignment: Option<u64>,
     ) -> io::Result<u32> {
-        let size_lba = match size.checked_div(self.config.lb_size.into()) {
-            Some(s) => s,
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "size must be greater than {} which is the logical block size.",
-                        self.config.lb_size
-                    ),
-                ));
-            }
-        };
+        // Ceiling division which avoids overflow
+        let size_lba = size.checked_sub(1)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "size must be greater than zero bytes"))?
+            .checked_div(self.config.lb_size.into())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid logical block size caused bad division when calculating size in blocks"))?
+            .checked_add(1)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "size too large. must be within u64::MAX - 1 bounds"))?;
+
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
         for (starting_lba, length) in free_sections {
-            debug!("starting_lba {}, length {}", starting_lba, length);
-            if length >= (size_lba - 1) {
+            // Get the distance between the starting LBA of this section and the next aligned LBA
+            // We don't need to do any checked math here because we guarantee that with `(A % B)`,
+            // `A` will always be between 0 and `B-1`.
+            let alignment_offset_lba = match part_alignment {
+                Some(alignment) => (alignment - (starting_lba % alignment)) % alignment,
+                None => 0_u64,
+            };
+
+            debug!("starting_lba {}, length {}, alignment_offset_lba {}", starting_lba, length, alignment_offset_lba);
+
+            if length >= (alignment_offset_lba + size_lba - 1) {
+                let starting_lba= starting_lba + alignment_offset_lba;
                 // Found our free slice.
                 let partition_id = self.find_next_partition_id();
                 debug!(

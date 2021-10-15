@@ -53,7 +53,7 @@ fn test_gptdisk_linux_01() {
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_start, 0x22 * 512);
     let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
-    assert_eq!(p1_len, (0x3E - 0x22) * 512);
+    assert_eq!(p1_len, (0x3E - 0x22 + 1) * 512);
 }
 
 #[test]
@@ -120,12 +120,48 @@ fn test_create_simple_on_device() {
     gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
     // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
     // Add a few partitions to demonstrate how...
-    gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0).unwrap();
-    gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0).unwrap();
+    gdisk.add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None).unwrap();
+    gdisk.add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None).unwrap();
     let mut mem_device = gdisk.write().unwrap();
     mem_device.seek(std::io::SeekFrom::Start(0)).unwrap();
     let mut final_bytes = vec![0u8; TOTAL_BYTES];
     mem_device.read_exact(&mut final_bytes).unwrap();
+}
+
+fn test_create_aligned_on_device() {
+    const TOTAL_BYTES: usize = 48 * 1024; // 48KiB, 96 Blocks
+    const ALIGNMENT: u64 = 4096 / 512; // 8 LBA alignment
+
+    let mut mem_device = Box::new(std::io::Cursor::new(vec![0u8; TOTAL_BYTES]));
+
+    let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(u32::try_from((TOTAL_BYTES / 512) - 1).unwrap_or(0xFF_FF_FF_FF));
+    mbr.overwrite_lba0(&mut mem_device).unwrap();
+
+    let mut gdisk = gpt::GptConfig::default()
+        .initialized(false)
+        .writable(true)
+        .logical_block_size(disk::LogicalBlockSize::Lb512)
+        .create_from_device(mem_device, None)
+        .unwrap();
+    gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
+
+    // 00-33: MBR, GPT Header / Info
+    // 40-51: Part 1 - 0.75 disk pages
+    // 56-61: Part 2 - 0.75 disk pagess
+    // 62-95: GPT Backup
+    assert!(gdisk.add_partition("test1", 6 * 1024, gpt::partition_types::BASIC, 0, Some(ALIGNMENT)).is_ok(),
+            "unexpected error writing first aligned partition: should start at LBA 40, end at 59");
+
+    assert!(gdisk.add_partition("test2", 8 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_err(),
+            "expected error writing over-sized second aligned partition: impossible addressing starting at LBA 56 ending at LBA 63 shouldn't fit with GPT backup");
+
+    assert!(gdisk.add_partition("test2", 6 * 1024, gpt::partition_types::LINUX_FS, 0, Some(ALIGNMENT)).is_ok(),
+            "unexpected error writing second aligned partition: should start at LBA 56, end at 61");
+
+    let mut mem_device = gdisk.write().unwrap();
+    let mut final_bytes = vec![0u8; TOTAL_BYTES];
+    mem_device.read_exact(&mut final_bytes).unwrap();
+
 }
 
 fn t_read_bytes(device: &mut gpt::DiskDeviceObject, offset: u64, bytes: usize) -> Vec<u8> {
@@ -167,8 +203,8 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
 
     let part1_bytes = 3 * lb_bytes;
-    gdisk.add_partition("test1", part1_bytes, gpt::partition_types::BASIC, 0).unwrap();
-    gdisk.add_partition("test2", (data_lbs * lb_bytes) - part1_bytes, gpt::partition_types::LINUX_FS, 0).unwrap();
+    gdisk.add_partition("test1", part1_bytes, gpt::partition_types::BASIC, 0, None).unwrap();
+    gdisk.add_partition("test2", (data_lbs * lb_bytes) - part1_bytes, gpt::partition_types::LINUX_FS, 0, None).unwrap();
 
     // Write out the table and get back the memory buffer so we can validate its contents.
     let mut mem_device = gdisk.write().unwrap();
