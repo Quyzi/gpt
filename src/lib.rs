@@ -607,4 +607,13 @@ impl<'a> GptDisk<'a> {
 
         Ok(())
     }
+
+    /// Take the underlying device object and force
+    /// self to drop out of scope.
+    ///
+    /// Cation: this will abandon any writes or changes made
+    /// to GptDisk.
+    pub fn take_device(self) -> DiskDeviceObject<'a> {
+        self.device
+    }
 }
