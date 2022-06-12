@@ -317,7 +317,7 @@ impl<'a> GptDisk<'a> {
     pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
         if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
             trace!("first_usable: {}", header.first_usable);
-            let mut disk_positions = vec![header.first_usable];
+            let mut disk_positions = vec![(header.first_usable - 1)];
             for part in self.partitions().iter().filter(|p| p.1.is_used()) {
                 trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
                 disk_positions.push(part.1.first_lba);
@@ -332,12 +332,9 @@ impl<'a> GptDisk<'a> {
                 .chunks(2)
                 // Add 1 to the ending and then subtract the starting if NOT the first usable sector
                 .map(|p| {
-                    if p[0] == header.first_usable {
-                        (p[0], p[1].saturating_sub(p[0]))
-                    } else {
-                        (p[0] + 1, p[1].saturating_sub(p[0] + 1))
-                    }
+                    (p[0] + 1, p[1].saturating_sub(p[0] + 1))
                 })
+                .filter(|(_, len)| len != &0)
                 .collect();
         }
         // No primary header. Return nothing.

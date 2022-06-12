@@ -128,6 +128,45 @@ fn test_create_simple_on_device() {
     mem_device.read_exact(&mut final_bytes).unwrap();
 }
 
+
+#[test]
+fn test_create_tiny_partitions_on_device() {
+    const TOTAL_BYTES: usize = 1024 * 64;
+    let mut mem_device = Box::new(std::io::Cursor::new(vec![0_u8; TOTAL_BYTES]));
+
+    // Create a protective MBR at LBA0
+    let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(
+        u32::try_from((TOTAL_BYTES / 512) - 1).unwrap_or(0xFF_FF_FF_FF));
+    mbr.overwrite_lba0(&mut mem_device).unwrap();
+
+    let mut gdisk = gpt::GptConfig::default()
+        .initialized(false)
+        .writable(true)
+        .logical_block_size(disk::LogicalBlockSize::Lb512)
+        .create_from_device(mem_device, None)
+        .unwrap();
+    // Initialize the headers using a blank partition table
+    gdisk.update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new()).unwrap();
+    // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
+    // Add a few partitions to demonstrate how...
+    gdisk.add_partition("test1", 512, gpt::partition_types::BASIC, 0, None).unwrap();
+    let part = gdisk.partitions().get(&1).unwrap();
+    assert_eq!((part.first_lba, part.last_lba), (34, 34));
+
+    gdisk.add_partition("test2", 128, gpt::partition_types::LINUX_FS, 0, None).unwrap();
+    let part = gdisk.partitions().get(&2).unwrap();
+    assert_eq!((part.first_lba, part.last_lba), (35, 35));
+
+    gdisk.add_partition("test3", 1, gpt::partition_types::LINUX_FS, 0, None).unwrap();
+    let part = gdisk.partitions().get(&3).unwrap();
+    assert_eq!((part.first_lba, part.last_lba), (36, 36));
+
+    let mut mem_device = gdisk.write().unwrap();
+    mem_device.seek(std::io::SeekFrom::Start(0)).unwrap();
+    let mut final_bytes = vec![0_u8; TOTAL_BYTES];
+    mem_device.read_exact(&mut final_bytes).unwrap();
+}
+
 fn test_create_aligned_on_device() {
     const TOTAL_BYTES: usize = 48 * 1024; // 48KiB, 96 Blocks
     const ALIGNMENT: u64 = 4096 / 512; // 8 LBA alignment
