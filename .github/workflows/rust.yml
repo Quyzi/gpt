@@ -5,6 +5,11 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  RUSTFLAGS: -Dwarnings
+  # change manually in matrix
+  rust_min: 1.56.0
+
 jobs:
   check:
     name: Check
@@ -14,17 +19,13 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.46.0
+          - 1.56.0
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
+      - run: cargo check
 
   test:
     name: Test Suite
@@ -34,36 +35,21 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.46.0
+          - 1.56.0
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: ${{ matrix.rust }}
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - run: cargo test
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-          - nightly
-          - 1.46.0
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-      - run: rustup component add clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+          toolchain: ${{ env.rust_min }}
+          components: clippy
+      - run: cargo clippy

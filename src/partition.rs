@@ -4,7 +4,7 @@
 //! to work with GPT partitions.
 
 use bitflags::*;
-use crc::crc32;
+use crc::Crc;
 use log::*;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
@@ -257,6 +257,8 @@ pub fn read_partitions(
     file_read_partitions(&mut file, header, lb_size)
 }
 
+const CRC_32: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
+
 /// Read a GPT partition table from an open `Read` + `Seek` object.
 pub fn file_read_partitions<D: Read + Seek>(
     file: &mut D,
@@ -313,7 +315,7 @@ pub fn file_read_partitions<D: Read + Seek>(
     let mut table = vec![0; pt_len as usize];
     file.read_exact(&mut table)?;
 
-    let comp_crc = crc32::checksum_ieee(&table);
+    let comp_crc = CRC_32.checksum(&table);
     if comp_crc != header.crc32_parts {
         return Err(Error::new(ErrorKind::Other, "partition table CRC mismatch"));
     }
