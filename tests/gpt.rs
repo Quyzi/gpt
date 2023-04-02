@@ -128,6 +128,8 @@ fn test_create_simple_on_device() {
     mem_device.read_exact(&mut final_bytes).unwrap();
 }
 
+#[allow(dead_code)]
+/// todo resolve in: https://github.com/Quyzi/gpt/pull/74
 fn test_create_aligned_on_device() {
     const TOTAL_BYTES: usize = 48 * 1024; // 48KiB, 96 Blocks
     const ALIGNMENT: u64 = 4096 / 512; // 8 LBA alignment
