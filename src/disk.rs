@@ -41,7 +41,7 @@ impl TryFrom<u64> for LogicalBlockSize {
             4096 => Ok(LogicalBlockSize::Lb4096),
             _ => Err(io::Error::new(
                 io::ErrorKind::Other,
-                "unsupported logical block size (must be 512 or 4096)"
+                "unsupported logical block size (must be 512 or 4096)",
             )),
         }
     }

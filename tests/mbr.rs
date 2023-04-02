@@ -1,4 +1,3 @@
-
 use tempfile;
 
 use gpt::{disk, mbr};
