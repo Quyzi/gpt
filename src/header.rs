@@ -1,6 +1,6 @@
 //! GPT-header object and helper functions.
 
-use crc::{crc32, Hasher32};
+use crc::Crc;
 use log::*;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -412,12 +412,14 @@ pub(crate) fn find_backup_lba<D: Read + Seek>(
     Ok(bak_lba)
 }
 
-fn calculate_crc32(b: &[u8]) -> u32 {
-    let mut digest = crc32::Digest::new(crc32::IEEE);
-    trace!("Writing buffer to digest calculator");
-    digest.write(b);
+const CRC_32: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
-    digest.sum32()
+fn calculate_crc32(b: &[u8]) -> u32 {
+    let mut digest = CRC_32.digest();
+    trace!("Writing buffer to digest calculator");
+    digest.update(b);
+
+    digest.finalize()
 }
 
 pub(crate) fn partentry_checksum<D: Read + Seek>(
