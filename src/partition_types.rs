@@ -1,12 +1,13 @@
 //! Parition type constants
 use log::trace;
 use std::str::FromStr;
+use ::uuid::Uuid;
 
 /// The type
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Type {
     /// Type-GUID for a GPT partition.
-    pub guid: &'static str,
+    pub guid: Uuid,
     /// well-known OS label for this type-GUID.
     pub os: OperatingSystem,
 }
@@ -105,13 +106,6 @@ fn test_partition_from_name() {
 }
 
 impl Type {
-    /// Lookup a partition type by uuid
-    pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, String> {
-        let uuid_str = u.to_hyphenated().to_string().to_uppercase();
-        trace!("looking up partition type guid {}", uuid_str);
-        Type::from_str(&uuid_str)
-    }
-
     /// Lookup a partition type by name
     pub fn from_name(name: &str) -> Result<Self, String> {
         let name_str = name.to_uppercase();
@@ -122,7 +116,7 @@ impl Type {
 
 impl Default for Type {
     fn default() -> Type {
-        Type { guid: "00000000-0000-0000-0000-000000000000", os: OperatingSystem::None }
+        UNUSED
     }
 }
 
