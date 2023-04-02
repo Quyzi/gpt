@@ -28,7 +28,13 @@ pub mod pub_macros {
             let res_u = Uuid::try_parse(s);
             match res_u {
                 Ok(u) => return u,
-                Err(_) => ::std::panic!("string was not an uuid"),
+                Err(_) => {
+                    // const_panic requires 1.57
+                    #[allow(unconditional_panic)]
+                    ["string was not an uuid"][1];
+                    // never type
+                    loop {}
+                },
             }
         }
         $(
@@ -51,30 +57,25 @@ pub mod pub_macros {
                         match ::uuid::Uuid::from_str(s) {
                             Ok(u) => Ok(Type {
                                 guid: u,
-                                os: OperatingSystem::Custom("Unknown".to_owned()),
+                                os: OperatingSystem::None,
                             }),
-                            Err(_) => Err("Can't match: not a valid UUID or unknown partition type".to_string()),
+                            Err(_) => Err("Invalid Partition Type GUID.".to_string()),
                         }
                     }
                 }
             }
         }
-        impl From<&Uuid> for Type {
-            fn from(u: &Uuid) -> Self {
+        impl From<Uuid> for Type {
+            fn from(guid: Uuid) -> Self {
                 $(
-                    if u == &$upcase.guid {
+                    if guid == $upcase.guid {
                         return $upcase;
                     }
                 )+
                 Type {
-                    guid: *u,
-                    os: OperatingSystem::Custom("Unknown".to_owned()),
+                    guid,
+                    os: OperatingSystem::None,
                 }
-            }
-        }
-        impl From<Uuid> for Type {
-            fn from(u: Uuid) -> Self {
-                (&u).into()
             }
         }
     }

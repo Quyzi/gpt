@@ -257,22 +257,17 @@ impl Header {
 
 /// Parses a uuid with first 3 portions in little endian.
 pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
-    let d1: u32 = u32::from_le_bytes(read_exact_buff!(d1b, rdr, 4));
-    let d2: u16 = u16::from_le_bytes(read_exact_buff!(d2b, rdr, 2));
-    let d3: u16 = u16::from_le_bytes(read_exact_buff!(d3b, rdr, 2));
-    use std::convert::TryInto;
-    let pos = rdr.position() as usize;
-    let d4 = match rdr.get_ref()[pos..pos + 8].try_into() {
-        Ok(d4) => d4,
-        Err(_) => return Err(Error::new(ErrorKind::Other, "Invalid Disk UUID?")),
-    };
+    let d1 = u32::from_le_bytes(read_exact_buff!(d1b, rdr, 4));
+    let d2 = u16::from_le_bytes(read_exact_buff!(d2b, rdr, 2));
+    let d3 = u16::from_le_bytes(read_exact_buff!(d3b, rdr, 2));
+    let d4 = read_exact_buff!(d4b, rdr, 8);
+
     let uuid = uuid::Uuid::from_fields(
         d1,
         d2,
         d3,
-        d4,
+        &d4,
     );
-    rdr.seek(SeekFrom::Current(8))?;
     Ok(uuid)
 }
 

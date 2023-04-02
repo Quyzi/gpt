@@ -106,11 +106,6 @@ fn test_partition_from_name() {
 }
 
 impl Type {
-    /// Lookup a partition type by uuid
-    pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, String> {
-        Ok(u.into())
-    }
-
     /// Lookup a partition type by name
     pub fn from_name(name: &str) -> Result<Self, String> {
         let name_str = name.to_uppercase();
