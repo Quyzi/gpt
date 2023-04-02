@@ -112,7 +112,7 @@ impl ProtectiveMBR {
     /// Read the LBA0 of a disk device and parse it into a protective-MBR object.
     pub fn from_disk<D: DiskDevice>(
         device: &mut D,
-        sector_size: disk::LogicalBlockSize
+        sector_size: disk::LogicalBlockSize,
     ) -> io::Result<Self> {
         let totlen: u64 = sector_size.into();
         let mut buf = vec![0_u8; totlen as usize];
@@ -182,11 +182,18 @@ impl ProtectiveMBR {
     ///
     /// This only changes the in-memory state, without overwriting
     /// any on-disk data.
-    pub fn set_partition(&mut self, partition_index: usize, partition: PartRecord) -> Option<PartRecord> {
+    pub fn set_partition(
+        &mut self,
+        partition_index: usize,
+        partition: PartRecord,
+    ) -> Option<PartRecord> {
         if partition_index >= self.partitions.len() {
             None
         } else {
-            Some(std::mem::replace(&mut self.partitions[partition_index], partition))
+            Some(std::mem::replace(
+                &mut self.partitions[partition_index],
+                partition,
+            ))
         }
     }
 
@@ -301,7 +308,7 @@ impl PartRecord {
             end_sector: buf[6],
             end_track: buf[7],
             lb_start: u32::from_le_bytes(read_exact_buff!(lbs, &buf[8..12], 4)),
-            lb_size: u32::from_le_bytes(read_exact_buff!(lbsize, &buf[12..16], 4) ),
+            lb_size: u32::from_le_bytes(read_exact_buff!(lbsize, &buf[12..16], 4)),
         };
         Ok(pr)
     }

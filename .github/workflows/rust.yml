@@ -53,3 +53,14 @@ jobs:
           toolchain: ${{ env.rust_min }}
           components: clippy
       - run: cargo clippy
+
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.rust_min }}
+          components: rustfmt
+      - run: cargo fmt -- --check

@@ -1,7 +1,7 @@
 //! Parition type constants
+use ::uuid::Uuid;
 use log::trace;
 use std::str::FromStr;
-use ::uuid::Uuid;
 
 /// The type
 #[derive(Clone, Debug, Eq, PartialEq)]
