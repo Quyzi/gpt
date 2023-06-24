@@ -88,23 +88,6 @@ impl FromStr for OperatingSystem {
     }
 }
 
-#[test]
-fn test_partition_fromstr_guid() {
-    let p = "0FC63DAF-8483-4772-8E79-3D69D8477DE4";
-    let t = Type::from_str(p).unwrap();
-    println!("result: {:?}", t);
-    assert_eq!(t, LINUX_FS);
-}
-
-#[test]
-fn test_partition_from_name() {
-    // mix case as part of the test
-    let p = "Linux_FS";
-    let t = Type::from_name(p).unwrap();
-    println!("result: {:?}", t);
-    assert_eq!(t, LINUX_FS);
-}
-
 impl Type {
     /// Lookup a partition type by name
     pub fn from_name(name: &str) -> Result<Self, String> {
@@ -343,4 +326,42 @@ partition_types! {
     (FREEDESK_BOOT, "BC13C2FF-59E6-4262-A352-B275FD6F7172", OperatingSystem::FreeDesktop),
     /// Atari Basic Data Partition (GEM, BGM, F32)
     (ATARI_DATA, "734E5AFE-F61A-11E6-BC64-92361F002671", OperatingSystem::Atari),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_partition_type_fromstr() {
+        assert_eq!(
+            Type::from_str("933AC7E1-2EB4-4F13-B844-0E14E2AEF915").unwrap(),
+            LINUX_HOME
+        );
+        assert_eq!(
+            Type::from_str("114EAFFE-1552-4022-B26E-9B053604CF84").unwrap(),
+            ANDROID_BOOTLOADER2
+        );
+        assert_eq!(
+            Type::from_str("00000000-0000-0000-0000-000000000000").unwrap(),
+            UNUSED
+        );
+    }
+
+    #[test]
+    fn test_partition_fromstr_guid() {
+        let p = "0FC63DAF-8483-4772-8E79-3D69D8477DE4";
+        let t = Type::from_str(p).unwrap();
+        println!("result: {:?}", t);
+        assert_eq!(t, LINUX_FS);
+    }
+
+    #[test]
+    fn test_partition_from_name() {
+        // mix case as part of the test
+        let p = "Linux_FS";
+        let t = Type::from_name(p).unwrap();
+        println!("result: {:?}", t);
+        assert_eq!(t, LINUX_FS);
+    }
 }

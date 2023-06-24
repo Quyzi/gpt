@@ -1,6 +1,6 @@
 use gpt;
 
-use gpt::disk;
+use gpt::{disk, partition_types};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io::{SeekFrom, Write};
@@ -30,35 +30,56 @@ fn test_gptconfig_empty() {
 }
 
 #[test]
-fn test_gptdisk_linux_01() {
-    let diskpath = path::Path::new("tests/fixtures/gpt-linux-disk-01.img");
+fn test_gpt_disk() {
+    let diskpath = path::Path::new("tests/fixtures/gpt-disk.img");
     let lb_size = disk::LogicalBlockSize::Lb512;
 
     let gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
     assert_eq!(*gdisk.logical_block_size(), lb_size);
     assert!(gdisk.primary_header().is_some());
     assert!(gdisk.backup_header().is_some());
-    assert_eq!(gdisk.partitions().len(), 1);
+    assert_eq!(gdisk.partitions().len(), 2);
 
     let h1 = gdisk.primary_header().unwrap();
     assert_eq!(h1.current_lba, 1);
-    assert_eq!(h1.backup_lba, 95);
+    assert_eq!(h1.backup_lba, 71);
 
     let h2 = gdisk.backup_header().unwrap();
-    assert_eq!(h2.current_lba, 95);
+    assert_eq!(h2.current_lba, 71);
     assert_eq!(h2.backup_lba, 1);
 
-    let p1 = &gdisk.partitions().get(&1_u32).unwrap();
-    assert_eq!(p1.name, "primary");
+    let p1 = gdisk.partitions().get(&1).unwrap();
+    assert_eq!(p1.part_type_guid, partition_types::LINUX_FS);
+    assert_eq!(
+        p1.part_guid,
+        "F38EAB50-076F-CB45-97F8-B1B7E5AF078F".parse().unwrap()
+    );
+    assert_eq!(p1.first_lba, 34);
+    assert_eq!(p1.last_lba, 34);
+
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
-    assert_eq!(p1_start, 0x22 * 512);
+    assert_eq!(p1_start, 512 * 34);
     let p1_len = p1.bytes_len(*gdisk.logical_block_size()).unwrap();
-    assert_eq!(p1_len, (0x3E - 0x22 + 1) * 512);
+    assert_eq!(p1_len, 512);
+
+    let p2 = gdisk.partitions().get(&2).unwrap();
+    assert_eq!(p2.part_type_guid, partition_types::LINUX_FS);
+    assert_eq!(
+        p2.part_guid,
+        "8EEE35AF-4A93-2C4F-AA7A-5FB193AC6FF7".parse().unwrap()
+    );
+    assert_eq!(p2.first_lba, 35);
+    assert_eq!(p2.last_lba, 38);
+
+    let p2_start = p2.bytes_start(*gdisk.logical_block_size()).unwrap();
+    assert_eq!(p2_start, 512 * 35);
+    let p2_len = p2.bytes_len(*gdisk.logical_block_size()).unwrap();
+    assert_eq!(p2_len, 4 * 512);
 }
 
 #[test]
-fn test_gptdisk_linux_01_write_fidelity_with_device() {
-    let diskpath = path::Path::new("tests/fixtures/gpt-linux-disk-01.img");
+fn test_gpt_disk_write_fidelity_with_device() {
+    let diskpath = path::Path::new("tests/fixtures/gpt-disk.img");
 
     // Assumes that test_gptdisk_linux_01 has passed, no need to check answers.
     let mut gdisk = gpt::GptConfig::new().open(diskpath).unwrap();

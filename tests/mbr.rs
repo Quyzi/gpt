@@ -49,7 +49,7 @@ fn test_mbr_write() {
 
 #[test]
 fn test_mbr_read() {
-    let mut diskf = File::open("tests/fixtures/gpt-linux-disk-01.img").unwrap();
+    let mut diskf = File::open("tests/fixtures/gpt-disk.img").unwrap();
     let m0 = mbr::ProtectiveMBR::from_disk(&mut diskf, disk::LogicalBlockSize::Lb512).unwrap();
     assert_eq!(m0.bootcode().to_vec(), vec![0; 440]);
     assert_eq!(m0.disk_signature().to_vec(), vec![0; 4]);
