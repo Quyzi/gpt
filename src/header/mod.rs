@@ -8,7 +8,7 @@ use crc::Crc;
 use log::*;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+use std::io::{self, Error, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::disk;
@@ -16,9 +16,19 @@ use crate::disk;
 use simple_bytes::{BytesArray, BytesRead, BytesSeek, BytesWrite};
 
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Errors returned when interacting with a header.
 pub enum HeaderError {
+    /// Generic IO Error
+    Io(Error),
+    /// Invalid GPT Signature
+    ///
+    /// This means your trying to read a gpt header which does not exist or is invalid.
+    InvalidGptSignature,
+    /// Invalid CRC32 Checksum
+    ///
+    /// This means the header was corrupted or not fully written.
+    InvalidCRC32Checksum,
     // Builder errors
     /// Get's returned when you call build on a HeaderBuilder and the backup lba field
     /// was never set
@@ -26,6 +36,20 @@ pub enum HeaderError {
     /// Get's returned when you call build on a HeaderBuilder and there isn't enough space
     /// between first_lba and backup_lba
     BackupLbaToEarly,
+    /// Get's returned when you try to write to the wrong lba (example calling
+    /// write_primary instead of write_backup)
+    WritingToWrongLba,
+    /// Somthing Overflowed  
+    /// This will never occur when dealing with sane values
+    Overflow(&'static str),
+    /// The Disk is to small to hold a backup header
+    ToSmallForBackup,
+}
+
+impl From<Error> for HeaderError {
+    fn from(e: Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 impl std::error::Error for HeaderError {}
@@ -34,12 +58,22 @@ impl fmt::Display for HeaderError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         use HeaderError::*;
         let desc = match self {
+            Io(e) => {
+                return write!(fmt, "Header IO Error: {e}")
+            },
+            InvalidGptSignature => "Invalid GPT Signature, the header does not exist or is invalid",
+            InvalidCRC32Checksum => "CRC32 Checksum Mismatch, the header is corrupted",
             MissingBackupLba => "HeaderBuilder expects the field backup_lba to be set",
             BackupLbaToEarly => {
                 "HeaderBuilder: there isn't enough space between first_lba and backup_lba"
-            }
+            },
+            WritingToWrongLba => {
+                "you trying to write to the wrong lba (example calling write_primary instead of write_backup)"
+            },
+            Overflow(m) => return write!(fmt, "Header error Overflow: {m}"),
+            ToSmallForBackup => "the disk is to small to hold a backup header"
         };
-        write!(fmt, "{}", desc)
+        write!(fmt, "{desc}")
     }
 }
 
@@ -85,17 +119,14 @@ impl Header {
         &self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<usize, HeaderError> {
         // This is the primary header. It must start before the backup one.
         if self.current_lba >= self.backup_lba {
             debug!(
                 "current lba: {} backup_lba: {}",
                 self.current_lba, self.backup_lba
             );
-            return Err(Error::new(
-                ErrorKind::Other,
-                "primary header does not start before backup one",
-            ));
+            return Err(HeaderError::WritingToWrongLba);
         }
         self.file_write_header(file, self.current_lba, lb_size)
     }
@@ -108,17 +139,14 @@ impl Header {
         &self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<usize, HeaderError> {
         // This is the backup header. It must start after the primary one.
         if self.current_lba <= self.backup_lba {
             debug!(
                 "current lba: {} backup_lba: {}",
                 self.current_lba, self.backup_lba
             );
-            return Err(Error::new(
-                ErrorKind::Other,
-                "backup header does not start after primary one",
-            ));
+            return Err(HeaderError::WritingToWrongLba);
         }
         self.file_write_header(file, self.current_lba, lb_size)
     }
@@ -132,11 +160,11 @@ impl Header {
         file: &mut D,
         lba: u64,
         lb_size: disk::LogicalBlockSize,
-    ) -> Result<usize> {
+    ) -> Result<usize, HeaderError> {
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, self, lb_size)?;
         trace!("computed partitions CRC32: {:#x}", parts_checksum);
-        let bytes = self.as_bytes(None, Some(parts_checksum))?;
+        let bytes = self.to_bytes(None, Some(parts_checksum));
         trace!("bytes before checksum: {:?}", bytes);
 
         // Calculate the CRC32 from the byte array
@@ -146,10 +174,10 @@ impl Header {
         // Write it to disk in 1 shot
         let start = lba
             .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
+            .ok_or(HeaderError::Overflow("writing header: lba * lbs"))?;
         trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
-        let header_bytes = self.as_bytes(Some(checksum), Some(parts_checksum))?;
+        let header_bytes = self.to_bytes(Some(checksum), Some(parts_checksum));
         // Per the spec, the rest of the logical block must be zeros...
         let mut bytes = Vec::with_capacity(lb_size.as_usize());
         bytes.extend_from_slice(&header_bytes);
@@ -160,11 +188,7 @@ impl Header {
         Ok(len)
     }
 
-    fn as_bytes(
-        &self,
-        header_checksum: Option<u32>,
-        partitions_checksum: Option<u32>,
-    ) -> Result<[u8; 92]> {
+    fn to_bytes(&self, header_checksum: Option<u32>, partitions_checksum: Option<u32>) -> [u8; 92] {
         let mut bytes = BytesArray::from([0u8; 92]);
         let disk_guid_fields = self.disk_guid.as_fields();
 
@@ -187,14 +211,17 @@ impl Header {
         bytes.write_le_u32(self.part_size);
         bytes.write_le_u32(partitions_checksum.unwrap_or_default());
 
-        Ok(bytes.into_array())
+        bytes.into_array()
     }
 }
 
 /// Parses a uuid with first 3 portions in little endian.
-pub fn parse_uuid<R: BytesRead>(rdr: &mut R) -> Result<uuid::Uuid> {
+pub fn parse_uuid<R: BytesRead>(rdr: &mut R) -> io::Result<uuid::Uuid> {
     if rdr.remaining().len() < 16 {
-        return Err(Error::new(ErrorKind::UnexpectedEof, "uuid needs 16bytes"));
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "uuid needs 16bytes",
+        ));
     }
 
     let d1 = rdr.read_le_u32();
@@ -228,7 +255,10 @@ impl fmt::Display for Header {
 ///
 /// let h = read_header(diskpath, lb_size).unwrap();
 /// ```
-pub fn read_header(path: impl AsRef<Path>, sector_size: disk::LogicalBlockSize) -> Result<Header> {
+pub fn read_header(
+    path: impl AsRef<Path>,
+    sector_size: disk::LogicalBlockSize,
+) -> Result<Header, HeaderError> {
     let mut file = File::open(path)?;
     read_primary_header(&mut file, sector_size)
 }
@@ -237,14 +267,14 @@ pub fn read_header(path: impl AsRef<Path>, sector_size: disk::LogicalBlockSize) 
 pub fn read_header_from_arbitrary_device<D: Read + Seek>(
     device: &mut D,
     sector_size: disk::LogicalBlockSize,
-) -> Result<Header> {
+) -> Result<Header, HeaderError> {
     read_primary_header(device, sector_size)
 }
 
 pub(crate) fn read_primary_header<D: Read + Seek>(
     file: &mut D,
     sector_size: disk::LogicalBlockSize,
-) -> Result<Header> {
+) -> Result<Header, HeaderError> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
     let offset: u64 = sector_size.into();
     let res = file_read_header(file, offset);
@@ -255,18 +285,21 @@ pub(crate) fn read_primary_header<D: Read + Seek>(
 pub(crate) fn read_backup_header<D: Read + Seek>(
     file: &mut D,
     sector_size: disk::LogicalBlockSize,
-) -> Result<Header> {
+) -> Result<Header, HeaderError> {
     let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
     let h2sect = find_backup_lba(file, sector_size)?;
     let offset = h2sect
         .checked_mul(sector_size.into())
-        .ok_or_else(|| Error::new(ErrorKind::Other, "backup header overflow - offset"))?;
+        .ok_or(HeaderError::Overflow("backup header overflow - offset"))?;
     let res = file_read_header(file, offset);
     let _ = file.seek(SeekFrom::Start(cur));
     res
 }
 
-pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Result<Header> {
+pub(crate) fn file_read_header<D: Read + Seek>(
+    file: &mut D,
+    offset: u64,
+) -> Result<Header, HeaderError> {
     let _ = file.seek(SeekFrom::Start(offset));
 
     let mut bytes = BytesArray::from([0u8; 92]);
@@ -275,7 +308,7 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     let sigstr = String::from_utf8_lossy(BytesRead::read(&mut bytes, 8)).into_owned();
 
     if sigstr != "EFI PART" {
-        return Err(Error::new(ErrorKind::Other, "invalid GPT signature"));
+        return Err(HeaderError::InvalidGptSignature);
     };
 
     let h = Header {
@@ -312,14 +345,14 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
     if c == h.crc32 {
         Ok(h)
     } else {
-        Err(Error::new(ErrorKind::Other, "invalid CRC32 checksum"))
+        Err(HeaderError::InvalidCRC32Checksum)
     }
 }
 
 pub(crate) fn find_backup_lba<D: Read + Seek>(
     f: &mut D,
     sector_size: disk::LogicalBlockSize,
-) -> Result<u64> {
+) -> Result<u64, HeaderError> {
     trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
     let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
@@ -329,10 +362,7 @@ pub(crate) fn find_backup_lba<D: Read + Seek>(
     // at least three lba need to be present else it doesn't make sense
     // to check for the backup header
     if len < lb_size * 3 {
-        return Err(Error::new(
-            ErrorKind::Other,
-            "disk image too small for backup header",
-        ));
+        return Err(HeaderError::ToSmallForBackup);
     }
     let bak_offset = len.saturating_sub(lb_size);
     let bak_lba = bak_offset / lb_size;
@@ -359,20 +389,22 @@ pub(crate) fn partentry_checksum<D: Read + Seek>(
     file: &mut D,
     hdr: &Header,
     lb_size: disk::LogicalBlockSize,
-) -> Result<u32> {
+) -> Result<u32, HeaderError> {
     // Seek to start of partition table.
     trace!("Computing partition checksum");
     let start = hdr
         .part_start
         .checked_mul(lb_size.into())
-        .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - partition table start"))?;
+        .ok_or(HeaderError::Overflow(
+            "header overflow - partition table start",
+        ))?;
     trace!("Seek to {}", start);
     let _ = file.seek(SeekFrom::Start(start))?;
 
     // Read partition table.
     let pt_len = u64::from(hdr.num_parts)
         .checked_mul(hdr.part_size.into())
-        .ok_or_else(|| Error::new(ErrorKind::Other, "partition table - size"))?;
+        .ok_or(HeaderError::Overflow("partition table - size"))?;
     trace!("Reading {} bytes", pt_len);
     let mut buf = vec![0; pt_len as usize];
     file.read_exact(&mut buf)?;
@@ -391,7 +423,7 @@ pub fn write_header(
     p: impl AsRef<Path>,
     uuid: Option<uuid::Uuid>,
     sector_size: disk::LogicalBlockSize,
-) -> Result<uuid::Uuid> {
+) -> Result<uuid::Uuid, HeaderError> {
     debug!("opening {} for writing", p.as_ref().display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
     let bak = find_backup_lba(&mut file, sector_size)?;
@@ -402,10 +434,7 @@ pub fn write_header(
         header.disk_guid(uuid);
     }
 
-    let header = header
-        .backup_lba(bak)
-        .build(sector_size)
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let header = header.backup_lba(bak).build(sector_size)?;
 
     debug!("new header: {:#?}", header);
     header.write_primary(&mut file, sector_size)?;

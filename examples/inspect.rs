@@ -1,7 +1,7 @@
 use gpt;
 
 use simplelog::{Config, LevelFilter, SimpleLogger};
-use std::io;
+use std::error::Error;
 
 fn main() {
     // Setup logging
@@ -14,7 +14,7 @@ fn main() {
     }
 }
 
-fn run() -> io::Result<()> {
+fn run() -> Result<(), Box<dyn Error>> {
     // First parameter is target disk image (optional, default: fixtures sample)
     let sample = "tests/fixtures/gpt-linux-disk-01.img".to_string();
     let input = std::env::args().nth(1).unwrap_or(sample);

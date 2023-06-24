@@ -242,7 +242,7 @@ pub struct PartRecord {
     pub start_sector: u8,
     /// CHS address of partition start: Lower 8 bits of cylinder
     pub start_track: u8,
-    /// Partition type. See https://www.win.tue.nl/~aeb/partitions/partition_types-1.html
+    /// Partition type. See <https://www.win.tue.nl/~aeb/partitions/partition_types-1.html>
     pub os_type: u8,
     /// CHS address of partition end: 8-bit value of head in CHS address
     pub end_head: u8,

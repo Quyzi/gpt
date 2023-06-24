@@ -4,7 +4,7 @@
 //! tables. Raw disk devices as well as disk images are supported.
 //!
 //! ```
-//! extern crate gpt;
+//! use gpt;
 //! use std::convert::TryFrom;
 //!
 //! fn inspect_disk() {
@@ -78,7 +78,7 @@
 use log::*;
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
-use std::{fs, io, path};
+use std::{fmt, fs, io, path};
 
 #[macro_use]
 mod macros;
@@ -95,6 +95,65 @@ pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
 impl<T> DiskDevice for T where T: Read + Write + Seek + std::fmt::Debug {}
 /// A dynamic trait object that is used by GptDisk for reading/writing/seeking.
 pub type DiskDeviceObject<'a> = Box<dyn DiskDevice + 'a>;
+
+#[non_exhaustive]
+#[derive(Debug)]
+/// Errors returned when interacting with a Gpt Disk.
+pub enum GptError {
+    /// Generic IO Error
+    Io(io::Error),
+    /// Error returned from writing or reading the header
+    Header(header::HeaderError),
+    /// we were expecting to read an existing partition table, but instead we're
+    /// attempting to create a new blank table
+    CreatingInitializedDisk,
+    /// Somthing Overflowed or Underflowed
+    /// This will never occur when dealing with sane values
+    Overflow(&'static str),
+    /// Unable to find enough space on drive
+    NotEnoughSpace,
+    /// disk not opened in writable mode
+    ReadOnly,
+    /// Trying to write a Disk which is not initialized
+    NotInitialized,
+    /// If you try to create more partition than the header supports
+    OverflowPartitionCount,
+}
+
+impl From<io::Error> for GptError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<header::HeaderError> for GptError {
+    fn from(e: header::HeaderError) -> Self {
+        Self::Header(e)
+    }
+}
+
+impl std::error::Error for GptError {}
+
+impl fmt::Display for GptError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use GptError::*;
+        let desc = match self {
+            Io(e) => return write!(fmt, "GPT IO Error: {e}"),
+            Header(e) => return write!(fmt, "GPT Header Error: {e}"),
+            CreatingInitializedDisk => {
+                "we were expecting to read an existing \
+                partition table, but instead we're attempting to create a \
+                new blank table"
+            }
+            Overflow(m) => return write!(fmt, "GTP error Overflow: {m}"),
+            NotEnoughSpace => "Unable to find enough space on drive",
+            ReadOnly => "disk not opened in writable mode",
+            NotInitialized => "try to initialize the disk first",
+            OverflowPartitionCount => "not enough partition slots",
+        };
+        write!(fmt, "{desc}")
+    }
+}
 
 /// Configuration options to open a GPT disk.
 #[derive(Debug, Eq, PartialEq)]
@@ -137,7 +196,7 @@ impl GptConfig {
 
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
-    pub fn open(self, diskpath: impl AsRef<path::Path>) -> io::Result<GptDisk<'static>> {
+    pub fn open(self, diskpath: impl AsRef<path::Path>) -> Result<GptDisk<'static>, GptError> {
         let file = Box::new(
             fs::OpenOptions::new()
                 .write(self.writable)
@@ -149,7 +208,7 @@ impl GptConfig {
 
     /// Open the GPT disk from the given DiskDeviceObject and
     /// inspect it according to configuration options.
-    pub fn open_from_device(self, mut device: DiskDeviceObject) -> io::Result<GptDisk> {
+    pub fn open_from_device(self, mut device: DiskDeviceObject) -> Result<GptDisk, GptError> {
         // Uninitialized disk, no headers/table to parse.
         if !self.initialized {
             return self.create_from_device(device, Some(uuid::Uuid::new_v4()));
@@ -177,13 +236,9 @@ impl GptConfig {
         self,
         device: DiskDeviceObject,
         guid: Option<uuid::Uuid>,
-    ) -> io::Result<GptDisk> {
+    ) -> Result<GptDisk, GptError> {
         if self.initialized {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "we were expecting to read an existing partition table, but \
-                    instead we're attempting to create a new blank table",
-            ))
+            Err(GptError::CreatingInitializedDisk)
         } else {
             let empty = GptDisk {
                 config: self,
@@ -232,14 +287,20 @@ impl<'a> GptDisk<'a> {
         part_type: partition_types::Type,
         flags: u64,
         part_alignment: Option<u64>,
-    ) -> io::Result<u32> {
+    ) -> Result<u32, GptError> {
         // Ceiling division which avoids overflow
-        let size_lba = size.checked_sub(1)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "size must be greater than zero bytes"))?
+        let size_lba = size
+            .checked_sub(1)
+            .ok_or(GptError::Overflow("size must be greater than zero bytes"))?
             .checked_div(self.config.lb_size.into())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid logical block size caused bad division when calculating size in blocks"))?
+            .ok_or(GptError::Overflow(
+                "invalid logical block size caused bad \
+                division when calculating size in blocks",
+            ))?
             .checked_add(1)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "size too large. must be within u64::MAX - 1 bounds"))?;
+            .ok_or(GptError::Overflow(
+                "size too large. must be within u64::MAX - 1 bounds",
+            ))?;
 
         // Find the lowest lba that is larger than size.
         let free_sections = self.find_free_sectors();
@@ -283,19 +344,23 @@ impl<'a> GptDisk<'a> {
             }
         }
 
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Unable to find enough space on drive",
-        ))
+        Err(GptError::NotEnoughSpace)
     }
     /// remove partition from this disk. This tries to find the partition based on either a
     /// given partition number (id) or a partition guid.  Returns the partition id if the
     /// partition is removed
+    ///
+    /// ## Panics
+    /// if both are None or both are Some
     pub fn remove_partition(
         &mut self,
         id: Option<u32>,
         partguid: Option<uuid::Uuid>,
     ) -> io::Result<u32> {
+        // todo split this into two functions
+
+        assert!((id.is_some() && partguid.is_none()) || (id.is_none() && partguid.is_some()));
+
         if let Some(part_id) = id {
             if let Some(partition_id) = self.partitions.remove(&part_id) {
                 debug!("Removing partition number {}", partition_id);
@@ -312,42 +377,43 @@ impl<'a> GptDisk<'a> {
                 }
             }
         }
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Unable to find partition to remove",
-        ))
+
+        unreachable!()
     }
 
     /// Find free space on the disk.
     /// Returns a tuple of (starting_lba, length in lba's).
     pub fn find_free_sectors(&self) -> Vec<(u64, u64)> {
-        if let Some(header) = self.primary_header().or_else(|| self.backup_header()) {
-            trace!("first_usable: {}", header.first_usable);
-            let mut disk_positions = vec![header.first_usable];
-            for part in self.partitions().iter().filter(|p| p.1.is_used()) {
-                trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
-                disk_positions.push(part.1.first_lba);
-                disk_positions.push(part.1.last_lba);
-            }
-            disk_positions.push(header.last_usable);
-            trace!("last_usable: {}", header.last_usable);
-            disk_positions.sort_unstable();
+        // todo replace with let else once msrv jumps to 1.65
+        let header = match self.primary_header().or_else(|| self.backup_header()) {
+            Some(header) => header,
+            // No primary header. Return nothing.
+            None => return vec![],
+        };
 
-            return disk_positions
-                // Walk through the LBA's in chunks of 2 (ending, starting).
-                .chunks(2)
-                // Add 1 to the ending and then subtract the starting if NOT the first usable sector
-                .map(|p| {
-                    if p[0] == header.first_usable {
-                        (p[0], p[1].saturating_sub(p[0]))
-                    } else {
-                        (p[0] + 1, p[1].saturating_sub(p[0] + 1))
-                    }
-                })
-                .collect();
+        trace!("first_usable: {}", header.first_usable);
+        let mut disk_positions = vec![header.first_usable];
+        for part in self.partitions().iter().filter(|p| p.1.is_used()) {
+            trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
+            disk_positions.push(part.1.first_lba);
+            disk_positions.push(part.1.last_lba);
         }
-        // No primary header. Return nothing.
-        vec![]
+        disk_positions.push(header.last_usable);
+        trace!("last_usable: {}", header.last_usable);
+        disk_positions.sort_unstable();
+
+        disk_positions
+            // Walk through the LBA's in chunks of 2 (ending, starting).
+            .chunks(2)
+            // Add 1 to the ending and then subtract the starting if NOT the first usable sector
+            .map(|p| {
+                if p[0] == header.first_usable {
+                    (p[0], p[1].saturating_sub(p[0]))
+                } else {
+                    (p[0] + 1, p[1].saturating_sub(p[0] + 1))
+                }
+            })
+            .collect()
     }
 
     /// Find next highest partition id.
@@ -412,7 +478,7 @@ impl<'a> GptDisk<'a> {
     ///
     /// If no UUID is specified, a new random one is generated.
     /// No changes are recorded to disk until `write()` is called.
-    pub fn update_guid(&mut self, uuid: Option<uuid::Uuid>) -> io::Result<&Self> {
+    pub fn update_guid(&mut self, uuid: Option<uuid::Uuid>) -> &mut Self {
         let guid = match uuid {
             Some(u) => u,
             None => {
@@ -422,7 +488,7 @@ impl<'a> GptDisk<'a> {
             }
         };
         self.guid = guid;
-        Ok(self)
+        self
     }
 
     /// returns the num_parts for the current Disk
@@ -444,7 +510,7 @@ impl<'a> GptDisk<'a> {
     pub fn update_partitions(
         &mut self,
         pp: BTreeMap<u32, partition::Partition>,
-    ) -> io::Result<&Self> {
+    ) -> Result<&mut Self, GptError> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
 
@@ -454,23 +520,20 @@ impl<'a> GptDisk<'a> {
             .num_parts(num_parts)
             .backup_lba(bak)
             .disk_guid(self.guid)
-            .build(self.config.lb_size)
-            // todo replace error
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .build(self.config.lb_size)?;
 
         let h2 = header::HeaderBuilder::from_maybe_header(self.backup_header.as_ref())
             .num_parts(num_parts)
             .backup_lba(bak)
             .disk_guid(self.guid)
             .primary(false)
-            .build(self.config.lb_size)
-            // todo replace error
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .build(self.config.lb_size)?;
 
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
         self.config.initialized = true;
+
         Ok(self)
     }
 
@@ -480,7 +543,7 @@ impl<'a> GptDisk<'a> {
     pub fn update_partitions_safe(
         &mut self,
         pp: BTreeMap<u32, partition::Partition>,
-    ) -> io::Result<&Self> {
+    ) -> Result<&mut Self, GptError> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
 
@@ -499,6 +562,7 @@ impl<'a> GptDisk<'a> {
         self.backup_header = None;
         self.partitions = pp;
         self.config.initialized = true;
+
         Ok(self)
     }
 
@@ -511,7 +575,7 @@ impl<'a> GptDisk<'a> {
         &mut self,
         pp: BTreeMap<u32, partition::Partition>,
         num_parts: u32,
-    ) -> io::Result<&Self> {
+    ) -> Result<&mut Self, GptError> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
 
@@ -536,6 +600,7 @@ impl<'a> GptDisk<'a> {
         self.backup_header = Some(h2);
         self.partitions = pp;
         self.config.initialized = true;
+
         Ok(self)
     }
 
@@ -544,8 +609,9 @@ impl<'a> GptDisk<'a> {
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
     /// before returning the underlying DiskDeviceObject.
-    pub fn write(mut self) -> io::Result<DiskDeviceObject<'a>> {
+    pub fn write(mut self) -> Result<DiskDeviceObject<'a>, GptError> {
         self.write_inplace()?;
+
         Ok(self.device)
     }
 
@@ -557,15 +623,12 @@ impl<'a> GptDisk<'a> {
     //
     // Primary header and backup header don't need to match.
     // so both need to be checked
-    pub fn write_inplace(&mut self) -> io::Result<()> {
+    pub fn write_inplace(&mut self) -> Result<(), GptError> {
         if !self.config.writable {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "disk not opened in writable mode",
-            ));
+            return Err(GptError::ReadOnly);
         }
         if !self.config.initialized {
-            return Err(io::Error::new(io::ErrorKind::Other, "disk not initialized"));
+            return Err(GptError::NotInitialized);
         }
         debug!("Computing new headers");
         trace!("old primary header: {:?}", self.primary_header);
@@ -596,13 +659,7 @@ impl<'a> GptDisk<'a> {
         {
             // don't allow us to overflow partition array...
             if part_idx >= primary_header.num_parts as usize {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "attempting to write more than max of {} partitions in primary array",
-                        primary_header.num_parts
-                    ),
-                ));
+                return Err(GptError::OverflowPartitionCount);
             }
 
             // Write to primary partition array
@@ -618,14 +675,9 @@ impl<'a> GptDisk<'a> {
             // to an up to date partition array on disk.
             if let Some(backup_header) = backup_header.as_ref() {
                 if part_idx >= backup_header.num_parts as usize {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        format!(
-                            "attempting to write more than max of {} partitions in backup array",
-                            backup_header.num_parts
-                        ),
-                    ));
+                    return Err(GptError::OverflowPartitionCount);
                 }
+
                 if primary_header.part_start != backup_header.part_start {
                     partition.1.write_to_device(
                         &mut self.device,
