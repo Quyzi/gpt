@@ -5,11 +5,13 @@ use log::*;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::disk;
 use crate::partition;
+
+use simple_bytes::{BytesArray, BytesRead, BytesSeek, BytesWrite};
 
 /// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -211,10 +213,12 @@ impl Header {
             .ok_or_else(|| Error::new(ErrorKind::Other, "header overflow - offset"))?;
         trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
-        let mut header_bytes = self.as_bytes(Some(checksum), Some(parts_checksum))?;
+        let header_bytes = self.as_bytes(Some(checksum), Some(parts_checksum))?;
         // Per the spec, the rest of the logical block must be zeros...
-        header_bytes.resize(Into::<usize>::into(lb_size), 0x00);
-        let len = file.write(&header_bytes)?;
+        let mut bytes = Vec::with_capacity(lb_size.as_usize());
+        bytes.extend_from_slice(&header_bytes);
+        bytes.resize(lb_size.as_usize(), 0);
+        let len = file.write(&bytes)?;
         trace!("Wrote {} bytes", len);
 
         Ok(len)
@@ -224,44 +228,43 @@ impl Header {
         &self,
         header_checksum: Option<u32>,
         partitions_checksum: Option<u32>,
-    ) -> Result<Vec<u8>> {
-        let mut buff: Vec<u8> = Vec::new();
+    ) -> Result<[u8; 92]> {
+        let mut bytes = BytesArray::from([0u8; 92]);
         let disk_guid_fields = self.disk_guid.as_fields();
 
-        buff.write_all(self.signature.as_bytes())?;
-        buff.write_all(&self.revision.1.to_le_bytes())?;
-        buff.write_all(&self.revision.0.to_le_bytes())?;
-        buff.write_all(&self.header_size_le.to_le_bytes())?;
-        match header_checksum {
-            Some(c) => buff.write_all(&c.to_le_bytes())?,
-            None => buff.write_all(&[0_u8; 4])?,
-        };
-        buff.write_all(&[0; 4])?;
-        buff.write_all(&self.current_lba.to_le_bytes())?;
-        buff.write_all(&self.backup_lba.to_le_bytes())?;
-        buff.write_all(&self.first_usable.to_le_bytes())?;
-        buff.write_all(&self.last_usable.to_le_bytes())?;
-        buff.write_all(&disk_guid_fields.0.to_le_bytes())?;
-        buff.write_all(&disk_guid_fields.1.to_le_bytes())?;
-        buff.write_all(&disk_guid_fields.2.to_le_bytes())?;
-        buff.write_all(disk_guid_fields.3)?;
-        buff.write_all(&self.part_start.to_le_bytes())?;
-        buff.write_all(&self.num_parts.to_le_bytes())?;
-        buff.write_all(&self.part_size.to_le_bytes())?;
-        match partitions_checksum {
-            Some(c) => buff.write_all(&c.to_le_bytes())?,
-            None => buff.write_all(&[0_u8; 4])?,
-        };
-        Ok(buff)
+        BytesWrite::write(&mut bytes, self.signature.as_bytes());
+        bytes.write_le_u16(self.revision.1);
+        bytes.write_le_u16(self.revision.0);
+        bytes.write_le_u32(self.header_size_le);
+        bytes.write_le_u32(header_checksum.unwrap_or_default());
+        bytes.write_le_u32(0);
+        bytes.write_le_u64(self.current_lba);
+        bytes.write_le_u64(self.backup_lba);
+        bytes.write_le_u64(self.first_usable);
+        bytes.write_le_u64(self.last_usable);
+        bytes.write_le_u32(disk_guid_fields.0);
+        bytes.write_le_u16(disk_guid_fields.1);
+        bytes.write_le_u16(disk_guid_fields.2);
+        BytesWrite::write(&mut bytes, disk_guid_fields.3);
+        bytes.write_le_u64(self.part_start);
+        bytes.write_le_u32(self.num_parts);
+        bytes.write_le_u32(self.part_size);
+        bytes.write_le_u32(partitions_checksum.unwrap_or_default());
+
+        Ok(bytes.into_array())
     }
 }
 
 /// Parses a uuid with first 3 portions in little endian.
-pub fn parse_uuid(rdr: &mut Cursor<&[u8]>) -> Result<uuid::Uuid> {
-    let d1 = u32::from_le_bytes(read_exact_buff!(d1b, rdr, 4));
-    let d2 = u16::from_le_bytes(read_exact_buff!(d2b, rdr, 2));
-    let d3 = u16::from_le_bytes(read_exact_buff!(d3b, rdr, 2));
-    let d4 = read_exact_buff!(d4b, rdr, 8);
+pub fn parse_uuid<R: BytesRead>(rdr: &mut R) -> Result<uuid::Uuid> {
+    if rdr.remaining().len() < 16 {
+        return Err(Error::new(ErrorKind::UnexpectedEof, "uuid needs 16bytes"));
+    }
+
+    let d1 = rdr.read_le_u32();
+    let d2 = rdr.read_le_u16();
+    let d3 = rdr.read_le_u16();
+    let d4 = rdr.read(8).try_into().unwrap();
 
     let uuid = uuid::Uuid::from_fields(d1, d2, d3, &d4);
     Ok(uuid)
@@ -329,49 +332,46 @@ pub(crate) fn read_backup_header<D: Read + Seek>(
 
 pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Result<Header> {
     let _ = file.seek(SeekFrom::Start(offset));
-    let mut hdr: [u8; 92] = [0; 92];
 
-    let _ = file.read_exact(&mut hdr);
-    let mut reader = Cursor::new(&hdr[..]);
+    let mut bytes = BytesArray::from([0u8; 92]);
+    file.read_exact(bytes.as_mut())?;
 
-    let sigstr = String::from_utf8_lossy(
-        &reader.get_ref()[reader.position() as usize..reader.position() as usize + 8],
-    );
-    reader.seek(SeekFrom::Current(8))?;
+    let sigstr = String::from_utf8_lossy(BytesRead::read(&mut bytes, 8)).into_owned();
 
     if sigstr != "EFI PART" {
         return Err(Error::new(ErrorKind::Other, "invalid GPT signature"));
     };
 
     let h = Header {
-        signature: sigstr.to_string(),
+        signature: sigstr,
         revision: {
-            let minor = u16::from_le_bytes(read_exact_buff!(rev, reader, 2));
-            let major = u16::from_le_bytes(read_exact_buff!(rev, reader, 2));
+            let minor = bytes.read_le_u16();
+            let major = bytes.read_le_u16();
             (major, minor)
         },
-        header_size_le: u32::from_le_bytes(read_exact_buff!(hsle, reader, 4)),
-        crc32: u32::from_le_bytes(read_exact_buff!(crc32, reader, 4)),
-        reserved: u32::from_le_bytes(read_exact_buff!(reserv, reader, 4)),
-        current_lba: u64::from_le_bytes(read_exact_buff!(clba, reader, 8)),
-        backup_lba: u64::from_le_bytes(read_exact_buff!(blba, reader, 8)),
-        first_usable: u64::from_le_bytes(read_exact_buff!(fusable, reader, 8)),
-        last_usable: u64::from_le_bytes(read_exact_buff!(lusable, reader, 8)),
-        disk_guid: parse_uuid(&mut reader)?,
-        part_start: u64::from_le_bytes(read_exact_buff!(pstart, reader, 8)),
+        header_size_le: bytes.read_le_u32(),
+        crc32: bytes.read_le_u32(),
+        reserved: bytes.read_le_u32(),
+        current_lba: bytes.read_le_u64(),
+        backup_lba: bytes.read_le_u64(),
+        first_usable: bytes.read_le_u64(),
+        last_usable: bytes.read_le_u64(),
+        disk_guid: parse_uuid(&mut bytes)?,
+        part_start: bytes.read_le_u64(),
         // Note: this will always return the total number of partition entries
         // in the array, not how many are actually used
-        num_parts: u32::from_le_bytes(read_exact_buff!(nparts, reader, 4)),
-        part_size: u32::from_le_bytes(read_exact_buff!(partsize, reader, 4)),
-        crc32_parts: u32::from_le_bytes(read_exact_buff!(crc32parts, reader, 4)),
+        num_parts: bytes.read_le_u32(),
+        part_size: bytes.read_le_u32(),
+        crc32_parts: bytes.read_le_u32(),
     };
-    trace!("header: {:?}", &hdr[..]);
+    trace!("header: {:?}", bytes.as_slice());
     trace!("header gpt: {}", h.disk_guid.as_hyphenated().to_string());
-    let mut hdr_crc = hdr;
-    for crc_byte in hdr_crc.iter_mut().skip(16).take(4) {
-        *crc_byte = 0;
-    }
-    let c = calculate_crc32(&hdr_crc);
+
+    // override crc32
+    BytesSeek::seek(&mut bytes, 16);
+    bytes.write_u32(0);
+
+    let c = calculate_crc32(bytes.as_slice());
     trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
     if c == h.crc32 {
         Ok(h)
@@ -483,6 +483,7 @@ mod tests {
     use crate::partition::Partition;
 
     use std::fs;
+    use std::io::Cursor;
 
     /// whats needs to be tested
     /// creating

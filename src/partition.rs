@@ -18,6 +18,8 @@ use crate::header::{parse_uuid, Header};
 use crate::partition_types::Type;
 use crate::DiskDevice;
 
+use simple_bytes::Bytes;
+
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
     pub struct PartitionAttributes: u64 {
@@ -292,7 +294,7 @@ pub fn file_read_partitions<D: Read + Seek>(
         if bytes.eq(&test[0..]) && nameraw.eq(&test2[0..]) {
             count += 1;
         } else {
-            let mut reader = Cursor::new(&bytes[..]);
+            let mut reader = Bytes::from(&bytes[..]);
             let type_guid = parse_uuid(&mut reader)?;
             let part_guid = parse_uuid(&mut reader)?;
 
