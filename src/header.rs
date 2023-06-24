@@ -16,8 +16,8 @@ use crate::partition;
 pub struct Header {
     /// GPT header magic signature, hardcoded to "EFI PART".
     pub signature: String, // Offset  0. "EFI PART", 45h 46h 49h 20h 50h 41h 52h 54h
-    /// 00 00 01 00
-    pub revision: u32, // Offset  8
+    /// major, minor
+    pub revision: (u16, u16), // Offset  8
     /// little endian
     pub header_size_le: u32, // Offset 12
     /// CRC32 of the header with crc32 section zeroed
@@ -121,7 +121,7 @@ impl Header {
 
         let hdr = Header {
             signature: "EFI PART".to_string(),
-            revision: 65536,
+            revision: (1, 0),
             header_size_le: 92,
             crc32: 0,
             reserved: 0,
@@ -229,7 +229,8 @@ impl Header {
         let disk_guid_fields = self.disk_guid.as_fields();
 
         buff.write_all(self.signature.as_bytes())?;
-        buff.write_all(&self.revision.to_le_bytes())?;
+        buff.write_all(&self.revision.1.to_le_bytes())?;
+        buff.write_all(&self.revision.0.to_le_bytes())?;
         buff.write_all(&self.header_size_le.to_le_bytes())?;
         match header_checksum {
             Some(c) => buff.write_all(&c.to_le_bytes())?,
@@ -344,7 +345,11 @@ pub(crate) fn file_read_header<D: Read + Seek>(file: &mut D, offset: u64) -> Res
 
     let h = Header {
         signature: sigstr.to_string(),
-        revision: u32::from_le_bytes(read_exact_buff!(rev, reader, 4)),
+        revision: {
+            let minor = u16::from_le_bytes(read_exact_buff!(rev, reader, 2));
+            let major = u16::from_le_bytes(read_exact_buff!(rev, reader, 2));
+            (major, minor)
+        },
         header_size_le: u32::from_le_bytes(read_exact_buff!(hsle, reader, 4)),
         crc32: u32::from_le_bytes(read_exact_buff!(crc32, reader, 4)),
         reserved: u32::from_le_bytes(read_exact_buff!(reserv, reader, 4)),
@@ -384,7 +389,10 @@ pub(crate) fn find_backup_lba<D: Read + Seek>(
     let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
     let len = f.seek(std::io::SeekFrom::End(0))?;
     f.seek(std::io::SeekFrom::Start(old_pos))?;
-    if len <= lb_size {
+    // lba0: prot mbr, lba1: prim, .., lba-1: backup
+    // at least three lba need to be present else it doesn't make sense
+    // to check for the backup header
+    if len < lb_size * 3 {
         return Err(Error::new(
             ErrorKind::Other,
             "disk image too small for backup header",
@@ -467,323 +475,182 @@ pub fn write_header(
     Ok(guid)
 }
 
-#[test]
-// test compute new with fdisk'd image, without giving original header
-fn test_compute_new_fdisk_no_header() {
-    use tempfile;
-    let lb_size = disk::DEFAULT_SECTOR_SIZE;
-    let diskpath = Path::new("tests/fixtures/test.img");
-    let h = read_header(diskpath, lb_size).unwrap();
-    let cfg = crate::GptConfig::new().writable(false).initialized(true);
-    let disk = cfg.open(diskpath).unwrap();
-    println!("original Disk {:#?}", disk);
-    let partitions: BTreeMap<u32, partition::Partition> = BTreeMap::new();
-    let mut file = std::fs::OpenOptions::new()
-        .write(false)
-        .read(true)
-        .open(diskpath)
-        .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
-    println!("Back offset {}", bak);
-    let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
-    {
-        let data: [u8; 4096] = [0; 4096];
-        println!("Creating blank header file for testing");
-        // This should be large enough to contain the backup partition array,
-        // or computing the checksum when writing the backup header will fail.
-        let min_file_size = (bak * Into::<u64>::into(lb_size)) + Into::<u64>::into(lb_size);
-        for _ in 0..((min_file_size + 4095) / 4096) {
-            tempdisk.write_all(&data).unwrap();
-        }
-    };
-    let new_primary = Header::compute_new(
-        true,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &None,
-        lb_size,
-        None,
-    )
-    .unwrap();
-    println!("new primary header {:#?}", new_primary);
-    let new_backup = Header::compute_new(
-        false,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &None,
-        lb_size,
-        None,
-    )
-    .unwrap();
-    println!("new backup header {:#?}", new_backup);
-    new_primary.write_primary(&mut tempdisk, lb_size).unwrap();
-    new_backup.write_backup(&mut tempdisk, lb_size).unwrap();
-    let mbr = crate::mbr::ProtectiveMBR::new();
-    mbr.overwrite_lba0(&mut tempdisk).unwrap();
-    assert_eq!(h.signature, new_primary.signature);
-    assert_eq!(h.revision, new_primary.revision);
-    assert_eq!(h.header_size_le, new_primary.header_size_le);
-    assert_eq!(h.reserved, new_primary.reserved);
-    assert_eq!(h.current_lba, new_primary.current_lba);
-    assert_eq!(h.backup_lba, new_primary.backup_lba);
-    assert_eq!(34, new_primary.first_usable); // since we did not include the original header, the first usable defaults to 34
-    assert_eq!(h.last_usable, new_primary.last_usable);
-    assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
-    assert_eq!(2, new_primary.part_start);
-    // when creating a new table from scratch, we should always have a minimum of 128 entries to be UEFI compliant
-    assert_eq!(128, new_primary.num_parts);
-    assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
-    //backup header tests
-    //current_lba and backup_lba should be flipped
-    assert_eq!(h.backup_lba, new_backup.current_lba);
-    assert_eq!(h.current_lba, new_backup.backup_lba);
-    // also, the backup header should match
-    assert_eq!(bh.current_lba, new_backup.current_lba);
-    assert_eq!(bh.backup_lba, new_backup.backup_lba);
-    assert_eq!(bh.part_start, new_backup.part_start);
-}
+    use crate::disk::LogicalBlockSize;
+    use crate::partition::Partition;
 
-#[test]
-// test compute new with fdisk'd image, giving original header
-// Note: if you would like to save to a file to check the headers
-// manually, use OpenOptions with write/create/truncate/read.  without the
-// read the checksum will not be able to read the tempdisk
-fn test_compute_new_fdisk_pass_header() {
-    let diskpath = Path::new("tests/fixtures/test.img");
-    let h = read_header(diskpath, disk::DEFAULT_SECTOR_SIZE).unwrap();
-    let cfg = crate::GptConfig::new().writable(false).initialized(true);
-    let disk = cfg.open(diskpath).unwrap();
-    println!("original Disk {:#?}", disk);
-    let partitions: BTreeMap<u32, partition::Partition> = BTreeMap::new();
-    let mut file = std::fs::OpenOptions::new()
-        .write(false)
-        .read(true)
-        .open(diskpath)
-        .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
-    println!("Back offset {}", bak);
-    let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
-    {
-        let data: [u8; 4096] = [0; 4096];
-        println!("Creating copy of test header file for testing");
-        for _ in 0..2560 {
-            tempdisk.write_all(&data).unwrap();
-        }
-    };
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
-    let mbr = crate::mbr::ProtectiveMBR::new();
-    mbr.overwrite_lba0(&mut tempdisk).unwrap();
-    let new_primary = Header::compute_new(
-        true,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &Some(h.clone()),
-        disk::DEFAULT_SECTOR_SIZE,
-        None,
-    )
-    .unwrap();
-    println!("new primary header {:#?}", new_primary);
-    let new_backup = Header::compute_new(
-        false,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &Some(h.clone()),
-        disk::DEFAULT_SECTOR_SIZE,
-        None,
-    )
-    .unwrap();
-    println!("new backup header {:#?}", new_backup);
-    new_primary
-        .write_primary(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
-        .unwrap();
-    new_backup
-        .write_backup(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
-        .unwrap();
-    assert_eq!(h.signature, new_primary.signature);
-    assert_eq!(h.revision, new_primary.revision);
-    assert_eq!(h.header_size_le, new_primary.header_size_le);
-    assert_eq!(h.reserved, new_primary.reserved);
-    assert_eq!(h.current_lba, new_primary.current_lba);
-    assert_eq!(h.backup_lba, new_primary.backup_lba);
-    assert_eq!(h.first_usable, new_primary.first_usable); // since we did not include the original header, the first usable defaults to 34
-    assert_eq!(h.last_usable, new_primary.last_usable);
-    assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
-    assert_eq!(2, new_primary.part_start);
-    //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(h.num_parts, new_primary.num_parts);
-    assert_eq!(h.part_size, new_primary.part_size); //standard size (it is possibly different, but usually 128)
+    use std::fs;
 
-    //backup header tests
-    //current_lba and backup_lba should be flipped
-    assert_eq!(h.backup_lba, new_backup.current_lba);
-    assert_eq!(h.current_lba, new_backup.backup_lba);
-    // also, the backup header should match
-    assert_eq!(bh.current_lba, new_backup.current_lba);
-    assert_eq!(bh.backup_lba, new_backup.backup_lba);
-    assert_eq!(bh.part_start, new_backup.part_start);
-}
+    /// whats needs to be tested
+    /// creating
+    /// reading
+    /// writing
 
-#[test]
-// test compute new with fdisk'd image, without giving original header
-fn test_compute_new_gpt_no_header() {
-    use tempfile;
-    let lb_size = disk::DEFAULT_SECTOR_SIZE;
-    let diskpath = Path::new("tests/fixtures/gpt-linux-disk-01.img");
-    let h = read_header(diskpath, lb_size).unwrap();
-    let cfg = crate::GptConfig::new().writable(false).initialized(true);
-    let disk = cfg.open(diskpath).unwrap();
-    println!("original Disk {:#?}", disk);
-    let partitions: BTreeMap<u32, partition::Partition> = BTreeMap::new();
-    let mut file = std::fs::OpenOptions::new()
-        .write(false)
-        .read(true)
-        .open(diskpath)
-        .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
-    println!("Back offset {}", bak);
-    let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
-    {
-        let data: [u8; 4096] = [0; 4096];
-        println!("Creating blank header file for testing");
-        for _ in 0..100 {
-            tempdisk.write_all(&data).unwrap();
-        }
-    };
-    let new_primary = Header::compute_new(
-        true,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &None,
-        lb_size,
-        None,
-    )
-    .unwrap();
-    println!("new primary header {:#?}", new_primary);
-    let new_backup = Header::compute_new(
-        false,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &None,
-        lb_size,
-        None,
-    )
-    .unwrap();
-    println!("new backup header {:#?}", new_backup);
-    new_primary.write_primary(&mut tempdisk, lb_size).unwrap();
-    new_backup.write_backup(&mut tempdisk, lb_size).unwrap();
-    let mbr = crate::mbr::ProtectiveMBR::new();
-    mbr.overwrite_lba0(&mut tempdisk).unwrap();
-    assert_eq!(h.signature, new_primary.signature);
-    assert_eq!(h.revision, new_primary.revision);
-    assert_eq!(h.header_size_le, new_primary.header_size_le);
-    assert_eq!(h.reserved, new_primary.reserved);
-    assert_eq!(h.current_lba, new_primary.current_lba);
-    assert_eq!(h.backup_lba, new_primary.backup_lba);
-    assert_eq!(34, new_primary.first_usable); // since we did not include the original header, the first usable defaults to 34
-    assert_eq!(h.last_usable, new_primary.last_usable);
-    assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
-    assert_eq!(2, new_primary.part_start);
-    // when creating a new table from scratch, we should always have a minimum of 128 entries to be UEFI compliant
-    assert_eq!(128, new_primary.num_parts);
-    assert_eq!(128, new_primary.part_size); //standard size (it is possibly different, but usually 128)
+    fn expected_headers() -> (Header, Header) {
+        let expected_primary = Header {
+            signature: "EFI PART".to_string(),
+            revision: (1, 0),
+            header_size_le: 92,
+            crc32: 0x55f06699,
+            reserved: 0,
+            current_lba: 1,
+            backup_lba: 71,
+            first_usable: 34,
+            last_usable: 38,
+            disk_guid: "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            part_start: 2,
+            num_parts: 128,
+            part_size: 128,
+            crc32_parts: 0x5fad601b,
+        };
 
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
-    //backup header tests
-    //current_lba and backup_lba should be flipped
-    assert_eq!(h.backup_lba, new_backup.current_lba);
-    assert_eq!(h.current_lba, new_backup.backup_lba);
-    // also, the backup header should match
-    assert_eq!(bh.current_lba, new_backup.current_lba);
-    assert_eq!(bh.backup_lba, new_backup.backup_lba);
-    assert_eq!(bh.part_start, new_backup.part_start);
-}
+        let mut expected_backup = expected_primary.clone();
+        expected_backup.crc32 = 0x7ddfa41b;
+        expected_backup.current_lba = 71;
+        expected_backup.backup_lba = 1;
+        expected_backup.part_start = 39;
 
-#[test]
-// test compute new with fdisk'd image, giving original header
-// Note: if you would like to save to a file to check the headers
-// manually, use OpenOptions with write/create/truncate/read.  without the
-// read the checksum will not be able to read the tempdisk
-fn test_compute_new_fdisk_gpt_header() {
-    let diskpath = Path::new("tests/fixtures/gpt-linux-disk-01.img");
-    let h = read_header(diskpath, disk::DEFAULT_SECTOR_SIZE).unwrap();
-    let cfg = crate::GptConfig::new().writable(false).initialized(true);
-    let disk = cfg.open(diskpath).unwrap();
-    println!("original Disk {:#?}", disk);
-    let partitions: BTreeMap<u32, partition::Partition> = BTreeMap::new();
-    let mut file = std::fs::OpenOptions::new()
-        .write(false)
-        .read(true)
-        .open(diskpath)
-        .unwrap();
-    let bak = find_backup_lba(&mut file, *disk.logical_block_size()).unwrap();
-    println!("Back offset {}", bak);
-    let mut tempdisk = tempfile::tempfile().expect("failed to create tempfile disk");
-    {
-        let data: [u8; 4096] = [0; 4096];
-        println!("Creating copy of test header file for testing");
-        for _ in 0..2560 {
-            tempdisk.write_all(&data).unwrap();
-        }
-    };
-    let bh = read_backup_header(&mut file, *disk.logical_block_size()).unwrap();
-    let mbr = crate::mbr::ProtectiveMBR::new();
-    mbr.overwrite_lba0(&mut tempdisk).unwrap();
-    let new_primary = Header::compute_new(
-        true,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &Some(h.clone()),
-        disk::DEFAULT_SECTOR_SIZE,
-        None,
-    )
-    .unwrap();
-    println!("new primary header {:#?}", new_primary);
-    let new_backup = Header::compute_new(
-        false,
-        &partitions,
-        uuid::Uuid::new_v4(),
-        bak,
-        &Some(h.clone()),
-        disk::DEFAULT_SECTOR_SIZE,
-        None,
-    )
-    .unwrap();
-    println!("new backup header {:#?}", new_backup);
-    new_primary
-        .write_primary(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
-        .unwrap();
-    new_backup
-        .write_backup(&mut tempdisk, disk::DEFAULT_SECTOR_SIZE)
-        .unwrap();
-    assert_eq!(h.signature, new_primary.signature);
-    assert_eq!(h.revision, new_primary.revision);
-    assert_eq!(h.header_size_le, new_primary.header_size_le);
-    assert_eq!(h.reserved, new_primary.reserved);
-    assert_eq!(h.current_lba, new_primary.current_lba);
-    assert_eq!(h.backup_lba, new_primary.backup_lba);
-    assert_eq!(h.first_usable, new_primary.first_usable); // since we did not include the original header, the first usable defaults to 34
-    assert_eq!(h.last_usable, new_primary.last_usable);
-    assert_ne!(h.disk_guid, new_primary.disk_guid); //writing new disk => new guid
-    assert_eq!(2, new_primary.part_start);
-    //if we do a write disk this wouldn't actually be able to write a new partition with fdisk unless you created a new partition table on it
-    assert_eq!(h.num_parts, new_primary.num_parts);
-    assert_eq!(h.part_size, new_primary.part_size); //standard size (it is possibly different, but usually 128)
+        (expected_primary, expected_backup)
+    }
 
-    //backup header tests
-    //current_lba and backup_lba should be flipped
-    assert_eq!(h.backup_lba, new_backup.current_lba);
-    assert_eq!(h.current_lba, new_backup.backup_lba);
-    // also, the backup header should match
-    assert_eq!(bh.current_lba, new_backup.current_lba);
-    assert_eq!(bh.backup_lba, new_backup.backup_lba);
-    assert_eq!(bh.part_start, new_backup.part_start);
+    #[test]
+    fn read_gpt_disk() {
+        let lb_size = LogicalBlockSize::Lb512;
+        let diskpath = Path::new("tests/fixtures/gpt-disk.img");
+
+        let (expected_primary, expected_backup) = expected_headers();
+
+        let mut file = File::open(diskpath).unwrap();
+        let primary = read_primary_header(&mut file, lb_size).unwrap();
+        let backup = read_backup_header(&mut file, lb_size).unwrap();
+
+        assert_eq!(primary, expected_primary);
+        assert_eq!(backup, expected_backup);
+    }
+
+    #[test]
+    fn create_gpt_disk() {
+        let empty_pp = BTreeMap::new();
+
+        let header_1 = Header::compute_new(
+            true,
+            &empty_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &None,
+            LogicalBlockSize::Lb512,
+            Some(128),
+        )
+        .unwrap();
+
+        let backup_header = Header::compute_new(
+            false,
+            &empty_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &None,
+            LogicalBlockSize::Lb512,
+            Some(128),
+        )
+        .unwrap();
+
+        let mut filled_pp = BTreeMap::new();
+        let mut used_partition = Partition::zero();
+        used_partition.part_type_guid = crate::partition_types::LINUX_FS;
+        filled_pp.insert(1, used_partition.clone());
+        filled_pp.insert(2, used_partition.clone());
+
+        let header_2 = Header::compute_new(
+            true,
+            &filled_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &None,
+            LogicalBlockSize::Lb512,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(header_1, header_2);
+
+        let (mut expected_primary, mut expected_backup) = expected_headers();
+
+        let header_3 = Header::compute_new(
+            true,
+            &empty_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &Some(expected_primary.clone()),
+            LogicalBlockSize::Lb512,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(header_1, header_3);
+
+        expected_primary.crc32 = 0;
+        expected_primary.crc32_parts = 0;
+        expected_backup.crc32 = 0;
+        expected_backup.crc32_parts = 0;
+
+        assert_eq!(expected_primary, header_1);
+        assert_eq!(expected_backup, backup_header);
+    }
+
+    #[test]
+    fn write_gpt_disk() {
+        let empty_pp = BTreeMap::new();
+
+        let lb_size = LogicalBlockSize::Lb512;
+
+        let primary = Header::compute_new(
+            true,
+            &empty_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &None,
+            LogicalBlockSize::Lb512,
+            Some(128),
+        )
+        .unwrap();
+
+        let backup = Header::compute_new(
+            false,
+            &empty_pp,
+            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
+            71,
+            &None,
+            LogicalBlockSize::Lb512,
+            Some(128),
+        )
+        .unwrap();
+
+        let diskpath = Path::new("tests/fixtures/gpt-disk.img");
+        let mut expected_disk = Cursor::new(fs::read(diskpath).unwrap());
+        let mut memory_disk = expected_disk.clone();
+
+        let first_lba = 1;
+        let backup_lba = find_backup_lba(&mut expected_disk, lb_size).unwrap();
+
+        let primary_bytes = [0u8; 92];
+        let backup_bytes = [0u8; 92];
+
+        // clear out primary and backup
+        memory_disk
+            .seek(SeekFrom::Start(first_lba * lb_size.as_u64()))
+            .unwrap();
+        memory_disk.write_all(&primary_bytes).unwrap();
+        memory_disk
+            .seek(SeekFrom::Start(backup_lba * lb_size.as_u64()))
+            .unwrap();
+        memory_disk.write_all(&backup_bytes).unwrap();
+
+        primary.write_primary(&mut memory_disk, lb_size).unwrap();
+        backup.write_backup(&mut memory_disk, lb_size).unwrap();
+
+        assert_eq!(memory_disk.into_inner(), expected_disk.into_inner());
+    }
 }

@@ -15,21 +15,33 @@ pub enum LogicalBlockSize {
     Lb4096,
 }
 
-impl From<LogicalBlockSize> for u64 {
-    fn from(lb: LogicalBlockSize) -> u64 {
-        match lb {
+impl LogicalBlockSize {
+    /// Returns the logical block size as a `usize`.
+    pub const fn as_usize(&self) -> usize {
+        match self {
+            LogicalBlockSize::Lb512 => 512,
+            LogicalBlockSize::Lb4096 => 4096,
+        }
+    }
+
+    /// Returns the logical block size as a `u64`.
+    pub const fn as_u64(&self) -> u64 {
+        match self {
             LogicalBlockSize::Lb512 => 512,
             LogicalBlockSize::Lb4096 => 4096,
         }
     }
 }
 
+impl From<LogicalBlockSize> for u64 {
+    fn from(lb: LogicalBlockSize) -> u64 {
+        lb.as_u64()
+    }
+}
+
 impl From<LogicalBlockSize> for usize {
     fn from(lb: LogicalBlockSize) -> usize {
-        match lb {
-            LogicalBlockSize::Lb512 => 512,
-            LogicalBlockSize::Lb4096 => 4096,
-        }
+        lb.as_usize()
     }
 }
 

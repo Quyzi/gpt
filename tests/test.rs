@@ -16,7 +16,7 @@ use tempfile::NamedTempFile;
 fn test_read_header() {
     let expected_header = Header {
         signature: "EFI PART".to_string(),
-        revision: 65536,
+        revision: (1, 0),
         header_size_le: 92,
         crc32: 1050019802,
         reserved: 0,
