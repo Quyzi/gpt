@@ -5,8 +5,50 @@
 
 use crate::disk;
 use crate::DiskDevice;
-use std::io::{Read, Write};
 use std::{fmt, io};
+
+use simple_bytes::{Bytes, BytesArray, BytesRead, BytesWrite};
+
+#[non_exhaustive]
+#[derive(Debug)]
+/// Errors returned when interacting with a Gpt Disk.
+pub enum MBRError {
+    /// Generic IO Error
+    Io(io::Error),
+    /// The provided buffer does not match the expected mbr length
+    InvalidMBRLength,
+    /// invalid MBR signature
+    InvalidMBRSignature,
+    /// Invalid Partition Length != 16
+    InvalidPartitionLength,
+    /// Somthing Overflowed or Underflowed
+    /// This will never occur when dealing with sane values
+    Overflow(&'static str),
+}
+
+impl From<io::Error> for MBRError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl std::error::Error for MBRError {}
+
+impl fmt::Display for MBRError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use MBRError::*;
+        let desc = match self {
+            Io(e) => return write!(fmt, "MBR IO Error: {e}"),
+            InvalidMBRLength => "The provided buffer does not match the expected mbr length",
+            InvalidMBRSignature => "Invalid MBR signature",
+            InvalidPartitionLength => "Invalid Partition length expected 16",
+            Overflow(m) => return write!(fmt, "MBR error Overflow: {m}"),
+        };
+        write!(fmt, "{desc}")
+    }
+}
+
+const MBR_SIGNATURE: [u8; 2] = [0x55, 0xAA];
 
 /// Protective MBR, as defined by GPT.
 pub struct ProtectiveMBR {
@@ -35,7 +77,7 @@ impl Default for ProtectiveMBR {
                 PartRecord::zero(),
                 PartRecord::zero(),
             ],
-            signature: [0x55, 0xAA],
+            signature: MBR_SIGNATURE,
         }
     }
 }
@@ -60,60 +102,44 @@ impl ProtectiveMBR {
                 PartRecord::zero(),
                 PartRecord::zero(),
             ],
-            signature: [0x55, 0xAA],
+            signature: MBR_SIGNATURE,
         }
     }
 
     /// Parse input bytes into a protective-MBR object.
-    pub fn from_bytes(buf: &[u8], sector_size: disk::LogicalBlockSize) -> io::Result<Self> {
+    pub fn from_bytes(buf: &[u8], sector_size: disk::LogicalBlockSize) -> Result<Self, MBRError> {
         let mut pmbr = Self::new();
         let totlen: u64 = sector_size.into();
 
         if buf.len() != (totlen as usize) {
-            return Err(io::Error::new(io::ErrorKind::Other, "invalid MBR length"));
+            return Err(MBRError::InvalidMBRLength);
         }
 
-        pmbr.bootcode.copy_from_slice(&buf[0..440]);
-        pmbr.disk_signature.copy_from_slice(&buf[440..444]);
-        pmbr.unknown = u16::from_le_bytes(read_exact_buff!(pmbru, &buf[444..446], 2));
+        let mut bytes = Bytes::from(buf);
 
-        for (i, p) in pmbr.partitions.iter_mut().enumerate() {
-            let start = i
-                .checked_mul(16)
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "partition record overflow - entry start",
-                    )
-                })?
-                .checked_add(446)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::Other, "partition overflow - start offset")
-                })?;
-            let end = start.checked_add(16).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    "partition record overflow - end offset",
-                )
-            })?;
-            *p = PartRecord::from_bytes(&buf[start..end])?;
+        pmbr.bootcode.copy_from_slice(bytes.read(440));
+        pmbr.disk_signature.copy_from_slice(bytes.read(4));
+        pmbr.unknown = bytes.read_le_u16();
+
+        for p in pmbr.partitions.iter_mut() {
+            *p = PartRecord::from_bytes(bytes.read(16))?;
         }
 
-        pmbr.signature.copy_from_slice(&buf[510..512]);
-        if pmbr.signature != [0x55, 0xAA] {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "invalid MBR signature",
-            ));
-        };
-        Ok(pmbr)
+        assert_eq!(simple_bytes::BytesSeek::position(&bytes), 510);
+
+        pmbr.signature.copy_from_slice(bytes.read(2));
+        if pmbr.signature == MBR_SIGNATURE {
+            Ok(pmbr)
+        } else {
+            Err(MBRError::InvalidMBRSignature)
+        }
     }
 
     /// Read the LBA0 of a disk device and parse it into a protective-MBR object.
     pub fn from_disk<D: DiskDevice>(
         device: &mut D,
         sector_size: disk::LogicalBlockSize,
-    ) -> io::Result<Self> {
+    ) -> Result<Self, MBRError> {
         let totlen: u64 = sector_size.into();
         let mut buf = vec![0_u8; totlen as usize];
         let cur = device.seek(io::SeekFrom::Current(0))?;
@@ -126,18 +152,22 @@ impl ProtectiveMBR {
     }
 
     /// Return the memory representation of this MBR as a byte vector.
-    pub fn as_bytes(&self) -> io::Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(512);
+    ///
+    /// This will always be 512
+    pub fn to_bytes(&self) -> [u8; 512] {
+        let mut bytes = BytesArray::from([0u8; 512]);
 
-        buf.write_all(&self.bootcode)?;
-        buf.write_all(&self.disk_signature)?;
-        buf.write_all(&self.unknown.to_le_bytes())?;
+        bytes.write(self.bootcode);
+        bytes.write(self.disk_signature);
+        bytes.write_le_u16(self.unknown);
+
         for p in &self.partitions {
-            let pdata = p.as_bytes()?;
-            buf.write_all(&pdata)?;
+            bytes.write(p.to_bytes());
         }
-        buf.write_all(&self.signature)?;
-        Ok(buf)
+
+        bytes.write(self.signature);
+
+        bytes.into_array()
     }
 
     /// Return the 440 bytes of BIOS bootcode.
@@ -198,10 +228,12 @@ impl ProtectiveMBR {
     }
 
     /// Write a protective MBR to LBA0, overwriting any existing data.
-    pub fn overwrite_lba0<D: DiskDevice>(&self, device: &mut D) -> io::Result<usize> {
+    ///
+    /// This will not write the entire lba0 if the sector size is 4096
+    pub fn overwrite_lba0<D: DiskDevice>(&self, device: &mut D) -> Result<usize, MBRError> {
         let cur = device.seek(io::SeekFrom::Current(0))?;
         let _ = device.seek(io::SeekFrom::Start(0))?;
-        let data = self.as_bytes()?;
+        let data = self.to_bytes();
         device.write_all(&data)?;
         device.flush()?;
 
@@ -213,14 +245,13 @@ impl ProtectiveMBR {
     ///
     /// This overwrites the four MBR partition records and the
     /// well-known signature, leaving all other MBR bits as-is.
-    pub fn update_conservative<D: DiskDevice>(&self, device: &mut D) -> io::Result<usize> {
+    pub fn update_conservative<D: DiskDevice>(&self, device: &mut D) -> Result<usize, MBRError> {
         let cur = device.seek(io::SeekFrom::Current(0))?;
         // Seek to first partition record.
         // (GPT spec 2.7 - sec. 5.2.3 - table 15)
         let _ = device.seek(io::SeekFrom::Start(446))?;
         for p in &self.partitions {
-            let pdata = p.as_bytes()?;
-            device.write_all(&pdata)?;
+            device.write_all(&p.to_bytes())?;
         }
         device.write_all(&self.signature)?;
         device.flush()?;
@@ -291,48 +322,49 @@ impl PartRecord {
     }
 
     /// Parse input bytes into a Partition Record.
-    pub fn from_bytes(buf: &[u8]) -> io::Result<Self> {
+    pub fn from_bytes(buf: &[u8]) -> Result<Self, MBRError> {
         if buf.len() != 16 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "invalid length for a partition record",
-            ));
-        };
+            return Err(MBRError::InvalidPartitionLength);
+        }
+
+        let mut bytes = Bytes::from(buf);
+
         let pr = Self {
-            boot_indicator: buf[0],
-            start_head: buf[1],
-            start_sector: buf[2],
-            start_track: buf[3],
-            os_type: buf[4],
-            end_head: buf[5],
-            end_sector: buf[6],
-            end_track: buf[7],
-            lb_start: u32::from_le_bytes(read_exact_buff!(lbs, &buf[8..12], 4)),
-            lb_size: u32::from_le_bytes(read_exact_buff!(lbsize, &buf[12..16], 4)),
+            boot_indicator: bytes.read_u8(),
+            start_head: bytes.read_u8(),
+            start_sector: bytes.read_u8(),
+            start_track: bytes.read_u8(),
+            os_type: bytes.read_u8(),
+            end_head: bytes.read_u8(),
+            end_sector: bytes.read_u8(),
+            end_track: bytes.read_u8(),
+            lb_start: bytes.read_le_u32(),
+            lb_size: bytes.read_le_u32(),
         };
+
         Ok(pr)
     }
 
     /// Return the memory representation of this Partition Record as a byte vector.
-    pub fn as_bytes(&self) -> io::Result<Vec<u8>> {
-        let mut buf: Vec<u8> = Vec::with_capacity(16);
+    pub fn to_bytes(&self) -> [u8; 16] {
+        let mut bytes = BytesArray::from([0u8; 16]);
 
-        buf.write_all(&self.boot_indicator.to_le_bytes())?;
+        bytes.write_u8(self.boot_indicator);
 
-        buf.write_all(&self.start_head.to_le_bytes())?;
-        buf.write_all(&self.start_sector.to_le_bytes())?;
-        buf.write_all(&self.start_track.to_le_bytes())?;
+        bytes.write_u8(self.start_head);
+        bytes.write_u8(self.start_sector);
+        bytes.write_u8(self.start_track);
 
-        buf.write_all(&self.os_type.to_le_bytes())?;
+        bytes.write_u8(self.os_type);
 
-        buf.write_all(&self.end_head.to_le_bytes())?;
-        buf.write_all(&self.end_sector.to_le_bytes())?;
-        buf.write_all(&self.end_track.to_le_bytes())?;
+        bytes.write_u8(self.end_head);
+        bytes.write_u8(self.end_sector);
+        bytes.write_u8(self.end_track);
 
-        buf.write_all(&self.lb_start.to_le_bytes())?;
-        buf.write_all(&self.lb_size.to_le_bytes())?;
+        bytes.write_le_u32(self.lb_start);
+        bytes.write_le_u32(self.lb_size);
 
-        Ok(buf)
+        bytes.into_array()
     }
 }
 

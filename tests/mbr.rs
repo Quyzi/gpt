@@ -7,12 +7,12 @@ use std::io::Read;
 #[test]
 fn test_mbr_partrecord() {
     let pr0 = mbr::PartRecord::zero();
-    let data0 = pr0.as_bytes().unwrap();
+    let data0 = pr0.to_bytes();
     assert_eq!(data0.len(), 16);
     assert_eq!(data0, [0x00; 16]);
 
     let pr1 = mbr::PartRecord::new_protective(None);
-    let data1 = pr1.as_bytes().unwrap();
+    let data1 = pr1.to_bytes();
     assert_eq!(data0.len(), data1.len());
     assert_ne!(data0, data1);
 }
@@ -20,13 +20,13 @@ fn test_mbr_partrecord() {
 #[test]
 fn test_mbr_protective() {
     let m0 = mbr::ProtectiveMBR::new();
-    let data0 = m0.as_bytes().unwrap();
+    let data0 = m0.to_bytes();
     assert_eq!(data0.len(), 512);
     assert_eq!(data0[510], 0x55);
     assert_eq!(data0[511], 0xAA);
 
     let m1 = mbr::ProtectiveMBR::with_lb_size(0x01);
-    let data1 = m1.as_bytes().unwrap();
+    let data1 = m1.to_bytes();
     assert_eq!(data0.len(), data1.len());
     assert_ne!(data0, data1);
     assert_eq!(data1[510], 0x55);
@@ -37,7 +37,7 @@ fn test_mbr_protective() {
 fn test_mbr_write() {
     let mut tempdisk = tempfile::tempfile().unwrap();
     let m0 = mbr::ProtectiveMBR::new();
-    let data0 = m0.as_bytes().unwrap();
+    let data0 = m0.to_bytes();
     m0.overwrite_lba0(&mut tempdisk).unwrap();
     m0.update_conservative(&mut tempdisk).unwrap();
 
@@ -62,10 +62,10 @@ fn test_mbr_rw_roundtrip() {
     let newsig = [0x11, 0x22, 0x33, 0x44];
     m0.set_disk_signature(newsig);
     m0.overwrite_lba0(&mut tempdisk).unwrap();
-    let data0 = m0.as_bytes().unwrap();
+    let data0 = m0.to_bytes();
 
     let m1 = mbr::ProtectiveMBR::from_disk(&mut tempdisk, disk::LogicalBlockSize::Lb512).unwrap();
-    let data1 = m1.as_bytes().unwrap();
+    let data1 = m1.to_bytes();
     assert_eq!(m0.bootcode().to_vec(), m1.bootcode().to_vec());
     assert_eq!(m0.disk_signature().to_vec(), m1.disk_signature().to_vec());
     assert_eq!(m0.disk_signature().to_vec(), newsig);
