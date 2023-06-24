@@ -211,6 +211,7 @@ impl Default for GptConfig {
 /// A GPT disk backed by an arbitrary device.
 #[derive(Debug)]
 pub struct GptDisk<'a> {
+    /// if you set config initialized this means there exists a primary_header
     config: GptConfig,
     device: DiskDeviceObject<'a>,
     guid: uuid::Uuid,
@@ -424,6 +425,19 @@ impl<'a> GptDisk<'a> {
         Ok(self)
     }
 
+    /// returns the num_parts for the current Disk
+    ///
+    /// you can set partitions_len to zero if you don't know yet
+    fn header_num_parts(&self, partitions_len: usize) -> u32 {
+        // todo this should probably be done differently
+        self.primary_header
+            .as_ref()
+            .map(|h| h.num_parts)
+            // we don't wan't to change the num_parts if there exists already a header
+            // if the num_parts should be changed see update_partitions_embedded
+            .unwrap_or(partitions_len as u32)
+    }
+
     /// Update current partition table.
     ///
     /// No changes are recorded to disk until `write()` is called.
@@ -433,24 +447,26 @@ impl<'a> GptDisk<'a> {
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
-        let h1 = header::Header::compute_new(
-            true,
-            &pp,
-            self.guid,
-            bak,
-            &self.primary_header,
-            self.config.lb_size,
-            None,
-        )?;
-        let h2 = header::Header::compute_new(
-            false,
-            &pp,
-            self.guid,
-            bak,
-            &self.backup_header,
-            self.config.lb_size,
-            None,
-        )?;
+
+        let num_parts = self.header_num_parts(pp.len());
+
+        let h1 = header::HeaderBuilder::from_maybe_header(self.primary_header.as_ref())
+            .num_parts(num_parts)
+            .backup_lba(bak)
+            .disk_guid(self.guid)
+            .build(self.config.lb_size)
+            // todo replace error
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        let h2 = header::HeaderBuilder::from_maybe_header(self.backup_header.as_ref())
+            .num_parts(num_parts)
+            .backup_lba(bak)
+            .disk_guid(self.guid)
+            .primary(false)
+            .build(self.config.lb_size)
+            // todo replace error
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
@@ -467,16 +483,20 @@ impl<'a> GptDisk<'a> {
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
-        let h1 = header::Header::compute_new(
-            true,
-            &pp,
-            self.guid,
-            bak,
-            &self.primary_header,
-            self.config.lb_size,
-            None,
-        )?;
+
+        let num_parts = self.header_num_parts(pp.len());
+
+        let h1 = header::HeaderBuilder::from_maybe_header(self.primary_header.as_ref())
+            .num_parts(num_parts)
+            .backup_lba(bak)
+            .disk_guid(self.guid)
+            .build(self.config.lb_size)
+            // todo replace error
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
         self.primary_header = Some(h1);
+        // make sure nothing is written to the backup header
+        self.backup_header = None;
         self.partitions = pp;
         self.config.initialized = true;
         Ok(self)
@@ -485,6 +505,8 @@ impl<'a> GptDisk<'a> {
     /// Update current partition table.
     /// Allows for changing the partition count, use with caution.
     /// No changes are recorded to disk until `write()` is called.
+    ///
+    /// At least 128 will always be set
     pub fn update_partitions_embedded(
         &mut self,
         pp: BTreeMap<u32, partition::Partition>,
@@ -492,24 +514,24 @@ impl<'a> GptDisk<'a> {
     ) -> io::Result<&Self> {
         // TODO(lucab): validate partitions.
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
-        let h1 = header::Header::compute_new(
-            true,
-            &pp,
-            self.guid,
-            bak,
-            &self.primary_header,
-            self.config.lb_size,
-            Some(num_parts),
-        )?;
-        let h2 = header::Header::compute_new(
-            false,
-            &pp,
-            self.guid,
-            bak,
-            &self.backup_header,
-            self.config.lb_size,
-            Some(num_parts),
-        )?;
+
+        let h1 = header::HeaderBuilder::from_maybe_header(self.primary_header.as_ref())
+            .num_parts(num_parts)
+            .backup_lba(bak)
+            .disk_guid(self.guid)
+            .build(self.config.lb_size)
+            // todo replace error
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        let h2 = header::HeaderBuilder::from_maybe_header(self.backup_header.as_ref())
+            .num_parts(num_parts)
+            .backup_lba(bak)
+            .disk_guid(self.guid)
+            .primary(false)
+            .build(self.config.lb_size)
+            // todo replace error
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
         self.primary_header = Some(h1);
         self.backup_header = Some(h2);
         self.partitions = pp;
@@ -532,6 +554,9 @@ impl<'a> GptDisk<'a> {
     /// This is a destructive action, as it overwrites headers
     /// and partitions entries on disk. All writes are flushed
     /// to disk before returning.
+    //
+    // Primary header and backup header don't need to match.
+    // so both need to be checked
     pub fn write_inplace(&mut self) -> io::Result<()> {
         if !self.config.writable {
             return Err(io::Error::new(
@@ -548,13 +573,29 @@ impl<'a> GptDisk<'a> {
         let bak = header::find_backup_lba(&mut self.device, self.config.lb_size)?;
         trace!("old backup lba: {}", bak);
         let primary_header = self.primary_header.clone().unwrap();
+        // if backup_header is None
+        // make sure not to write anything to the backup part
+        // since that way we can rollback
         let backup_header = self.backup_header.clone();
+        // make sure we have always a backup_header
+        // .ok_or_else(|| {
+        //     HeaderBuilder::from(primary_header)
+        //         .primary(false)
+        //         .build(self.config.lb_size)
+        //         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        // })?;
 
         // Write all of the used partitions at the start of the partition array.
-        let mut next_partition_index = 0_u64;
-        for partition in self.partitions().clone().iter().filter(|p| p.1.is_used()) {
+        let mut next_partition_index = 0;
+        for (part_idx, partition) in self
+            .partitions()
+            .clone()
+            .iter()
+            .filter(|p| p.1.is_used())
+            .enumerate()
+        {
             // don't allow us to overflow partition array...
-            if next_partition_index >= u64::from(primary_header.num_parts) {
+            if part_idx >= primary_header.num_parts as usize {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     format!(
@@ -567,7 +608,7 @@ impl<'a> GptDisk<'a> {
             // Write to primary partition array
             partition.1.write_to_device(
                 &mut self.device,
-                next_partition_index,
+                part_idx as u64,
                 primary_header.part_start,
                 self.config.lb_size,
                 primary_header.part_size,
@@ -576,7 +617,7 @@ impl<'a> GptDisk<'a> {
             // area to store the partition array; otherwise backup header will not point
             // to an up to date partition array on disk.
             if let Some(backup_header) = backup_header.as_ref() {
-                if next_partition_index >= u64::from(backup_header.num_parts) {
+                if part_idx >= backup_header.num_parts as usize {
                     return Err(io::Error::new(
                         io::ErrorKind::Other,
                         format!(
@@ -588,14 +629,14 @@ impl<'a> GptDisk<'a> {
                 if primary_header.part_start != backup_header.part_start {
                     partition.1.write_to_device(
                         &mut self.device,
-                        next_partition_index,
+                        part_idx as u64,
                         backup_header.part_start,
                         self.config.lb_size,
                         backup_header.part_size,
                     )?;
                 }
             }
-            next_partition_index += 1;
+            next_partition_index = part_idx + 1;
         }
 
         // Next, write zeros to the rest of the primary/backup partition array
@@ -603,9 +644,9 @@ impl<'a> GptDisk<'a> {
         // NOTE: we should never underflow here because of boundary checking in loop above.
         partition::Partition::write_zero_entries_to_device(
             &mut self.device,
-            next_partition_index,
-            u64::from(primary_header.num_parts)
-                .checked_sub(next_partition_index)
+            next_partition_index as u64,
+            (primary_header.num_parts as u64)
+                .checked_sub(next_partition_index as u64)
                 .unwrap(),
             primary_header.part_start,
             self.config.lb_size,
@@ -614,9 +655,9 @@ impl<'a> GptDisk<'a> {
         if let Some(backup_header) = backup_header.as_ref() {
             partition::Partition::write_zero_entries_to_device(
                 &mut self.device,
-                next_partition_index,
-                u64::from(backup_header.num_parts)
-                    .checked_sub(next_partition_index)
+                next_partition_index as u64,
+                (backup_header.num_parts as u64)
+                    .checked_sub(next_partition_index as u64)
                     .unwrap(),
                 backup_header.part_start,
                 self.config.lb_size,
@@ -624,34 +665,16 @@ impl<'a> GptDisk<'a> {
             )?;
         }
 
-        let new_backup_header = header::Header::compute_new(
-            false,
-            &self.partitions,
-            self.guid,
-            bak,
-            &self.primary_header,
-            self.config.lb_size,
-            None,
-        )?;
-        let new_primary_header = header::Header::compute_new(
-            true,
-            &self.partitions,
-            self.guid,
-            bak,
-            &self.backup_header,
-            self.config.lb_size,
-            None,
-        )?;
-        debug!("Writing backup header");
-        new_backup_header.write_backup(&mut self.device, self.config.lb_size)?;
+        // todo new headers where created. Why?
+
+        if let Some(backup_header) = backup_header {
+            debug!("Writing backup header");
+            backup_header.write_backup(&mut self.device, self.config.lb_size)?;
+        }
         debug!("Writing primary header");
-        new_primary_header.write_primary(&mut self.device, self.config.lb_size)?;
-        trace!("new primary header: {:?}", new_primary_header);
-        trace!("new backup header: {:?}", new_backup_header);
+        primary_header.write_primary(&mut self.device, self.config.lb_size)?;
 
         self.device.flush()?;
-        self.primary_header = Some(new_primary_header);
-        self.backup_header = Some(new_backup_header);
 
         Ok(())
     }

@@ -1,17 +1,47 @@
 //! GPT-header object and helper functions.
 
+mod builder;
+
+pub use builder::HeaderBuilder;
+
 use crc::Crc;
 use log::*;
-use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::disk;
-use crate::partition;
 
 use simple_bytes::{BytesArray, BytesRead, BytesSeek, BytesWrite};
+
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+/// Errors returned when interacting with a header.
+pub enum HeaderError {
+    // Builder errors
+    /// Get's returned when you call build on a HeaderBuilder and the backup lba field
+    /// was never set
+    MissingBackupLba,
+    /// Get's returned when you call build on a HeaderBuilder and there isn't enough space
+    /// between first_lba and backup_lba
+    BackupLbaToEarly,
+}
+
+impl std::error::Error for HeaderError {}
+
+impl fmt::Display for HeaderError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use HeaderError::*;
+        let desc = match self {
+            MissingBackupLba => "HeaderBuilder expects the field backup_lba to be set",
+            BackupLbaToEarly => {
+                "HeaderBuilder: there isn't enough space between first_lba and backup_lba"
+            }
+        };
+        write!(fmt, "{}", desc)
+    }
+}
 
 /// Header describing a GPT disk.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,100 +77,6 @@ pub struct Header {
 }
 
 impl Header {
-    pub(crate) fn compute_new(
-        primary: bool,
-        pp: &BTreeMap<u32, partition::Partition>,
-        guid: uuid::Uuid,
-        backup_offset: u64,
-        original_header: &Option<Header>,
-        lb_size: disk::LogicalBlockSize,
-        num_parts: Option<u32>,
-    ) -> Result<Self> {
-        let (cur, bak) = if primary {
-            (1, backup_offset)
-        } else {
-            (backup_offset, 1)
-        };
-
-        // really this number should actually usually be 128, as it is the
-        // TOTAL number of entries in the partition table, NOT the number USED.
-        // UEFI requires space for 128 minimum, but the number can be increased or reduced.
-        // If we're creating the table from scratch, make sure the table contains enough
-        // room to be UEFI compliant.
-        let parts = match num_parts {
-            Some(p) => p,
-            None => match original_header {
-                Some(header) => header.num_parts,
-                None => (pp.iter().filter(|p| p.1.is_used()).count() as u32).max(128),
-            },
-        };
-        //though usually 128, it might be a different number
-        let part_size = match original_header {
-            Some(header) => header.part_size,
-            None => 128,
-        };
-
-        let part_array_num_bytes = u64::from(parts * part_size);
-        // If not an exact multiple of a sector, round up to the next # of whole sectors.
-        let lb_size_u64 = Into::<u64>::into(lb_size);
-        let part_array_num_lbs = (part_array_num_bytes + (lb_size_u64 - 1)) / lb_size_u64;
-
-        // sometimes the first usable isn't sector 34, fdisk starts at 2048
-        // alternatively, if the sector size is 4096 it might not be 34 either.
-        // to align partition boundaries (https://metebalci.com/blog/a-quick-tour-of-guid-partition-table-gpt/)
-        let first = match num_parts {
-            Some(_) => 1 + 1 + part_array_num_lbs,
-            None => {
-                match original_header {
-                    Some(header) => header.first_usable,
-                    None => 1 + 1 + part_array_num_lbs, //protective MBR + GPT header + partition array
-                }
-            }
-        };
-        let last = match num_parts {
-            Some(_) => {
-                // last is inclusive: end of disk is (partition array) (backup header)
-                backup_offset
-                    .checked_sub(part_array_num_lbs + 1)
-                    .ok_or_else(|| Error::new(ErrorKind::Other, "header underflow - last usable"))?
-            }
-            None => {
-                match original_header {
-                    Some(header) => header.last_usable,
-                    None => {
-                        // last is inclusive: end of disk is (partition array) (backup header)
-                        backup_offset
-                            .checked_sub(part_array_num_lbs + 1)
-                            .ok_or_else(|| {
-                                Error::new(ErrorKind::Other, "header underflow - last usable")
-                            })?
-                    }
-                }
-            }
-        };
-        // the partition entry LBA starts at 2 (usually) for primary headers and at the last_usable + 1 for backup headers
-        let part_start = if primary { 2 } else { last + 1 };
-
-        let hdr = Header {
-            signature: "EFI PART".to_string(),
-            revision: (1, 0),
-            header_size_le: 92,
-            crc32: 0,
-            reserved: 0,
-            current_lba: cur,
-            backup_lba: bak,
-            first_usable: first,
-            last_usable: last,
-            disk_guid: guid,
-            part_start,
-            num_parts: parts,
-            part_size,
-            crc32_parts: 0,
-        };
-
-        Ok(hdr)
-    }
-
     /// Write the primary header.
     ///
     /// With a CRC32 set to zero this will set the crc32 after
@@ -459,20 +395,22 @@ pub fn write_header(
     debug!("opening {} for writing", p.as_ref().display());
     let mut file = OpenOptions::new().write(true).read(true).open(p)?;
     let bak = find_backup_lba(&mut file, sector_size)?;
-    let guid = match uuid {
-        Some(u) => u,
-        None => {
-            let u = uuid::Uuid::new_v4();
-            debug!("Generated random uuid: {}", u);
-            u
-        }
-    };
 
-    let hdr = Header::compute_new(true, &BTreeMap::new(), guid, bak, &None, sector_size, None)?;
-    debug!("new header: {:#?}", hdr);
-    hdr.write_primary(&mut file, sector_size)?;
+    let mut header = HeaderBuilder::new();
 
-    Ok(guid)
+    if let Some(uuid) = uuid {
+        header.disk_guid(uuid);
+    }
+
+    let header = header
+        .backup_lba(bak)
+        .build(sector_size)
+        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+
+    debug!("new header: {:#?}", header);
+    header.write_primary(&mut file, sector_size)?;
+
+    Ok(header.disk_guid)
 }
 
 #[cfg(test)]
@@ -480,7 +418,6 @@ mod tests {
     use super::*;
 
     use crate::disk::LogicalBlockSize;
-    use crate::partition::Partition;
 
     use std::fs;
     use std::io::Cursor;
@@ -489,6 +426,11 @@ mod tests {
     /// creating
     /// reading
     /// writing
+
+    /// edgecases
+    /// part_size different
+    /// num_parts different
+    /// same part start
 
     fn expected_headers() -> (Header, Header) {
         let expected_primary = Header {
@@ -534,63 +476,26 @@ mod tests {
 
     #[test]
     fn create_gpt_disk() {
-        let empty_pp = BTreeMap::new();
+        let header_1 = HeaderBuilder::new()
+            .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
+            .backup_lba(71)
+            .build(LogicalBlockSize::Lb512)
+            .unwrap();
 
-        let header_1 = Header::compute_new(
-            true,
-            &empty_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &None,
-            LogicalBlockSize::Lb512,
-            Some(128),
-        )
-        .unwrap();
-
-        let backup_header = Header::compute_new(
-            false,
-            &empty_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &None,
-            LogicalBlockSize::Lb512,
-            Some(128),
-        )
-        .unwrap();
-
-        let mut filled_pp = BTreeMap::new();
-        let mut used_partition = Partition::zero();
-        used_partition.part_type_guid = crate::partition_types::LINUX_FS;
-        filled_pp.insert(1, used_partition.clone());
-        filled_pp.insert(2, used_partition.clone());
-
-        let header_2 = Header::compute_new(
-            true,
-            &filled_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &None,
-            LogicalBlockSize::Lb512,
-            None,
-        )
-        .unwrap();
-
-        assert_eq!(header_1, header_2);
+        let backup_header = HeaderBuilder::new()
+            .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
+            .backup_lba(71)
+            .primary(false)
+            .build(LogicalBlockSize::Lb512)
+            .unwrap();
 
         let (mut expected_primary, mut expected_backup) = expected_headers();
 
-        let header_3 = Header::compute_new(
-            true,
-            &empty_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &Some(expected_primary.clone()),
-            LogicalBlockSize::Lb512,
-            None,
-        )
-        .unwrap();
+        let header_2 = HeaderBuilder::from_header(&expected_primary)
+            .build(LogicalBlockSize::Lb512)
+            .unwrap();
 
-        assert_eq!(header_1, header_3);
+        assert_eq!(header_1, header_2);
 
         expected_primary.crc32 = 0;
         expected_primary.crc32_parts = 0;
@@ -603,31 +508,20 @@ mod tests {
 
     #[test]
     fn write_gpt_disk() {
-        let empty_pp = BTreeMap::new();
-
         let lb_size = LogicalBlockSize::Lb512;
 
-        let primary = Header::compute_new(
-            true,
-            &empty_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &None,
-            LogicalBlockSize::Lb512,
-            Some(128),
-        )
-        .unwrap();
+        let primary = HeaderBuilder::new()
+            .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
+            .backup_lba(71)
+            .build(lb_size)
+            .unwrap();
 
-        let backup = Header::compute_new(
-            false,
-            &empty_pp,
-            "1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap(),
-            71,
-            &None,
-            LogicalBlockSize::Lb512,
-            Some(128),
-        )
-        .unwrap();
+        let backup = HeaderBuilder::new()
+            .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
+            .backup_lba(71)
+            .primary(false)
+            .build(lb_size)
+            .unwrap();
 
         let diskpath = Path::new("tests/fixtures/gpt-disk.img");
         let mut expected_disk = Cursor::new(fs::read(diskpath).unwrap());
