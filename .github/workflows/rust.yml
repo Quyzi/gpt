@@ -1,7 +1,7 @@
 # Workflow recipe from https://github.com/actions-rs/meta/blob/master/recipes/msrv.md
 on: 
   push:
-    branches: [master]
+    branches: [master, 3.0.1]
   pull_request:
     branches: [master]
 
