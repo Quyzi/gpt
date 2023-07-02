@@ -67,7 +67,7 @@ impl Partition {
 
         // Type GUID.
         let tyguid = uuid::Uuid::from_str(self.part_type_guid.guid).map_err(|e| {
-            Error::new(ErrorKind::Other, format!("Invalid guid: {}", e.to_string()))
+            Error::new(ErrorKind::Other, format!("Invalid guid: {}", e))
         })?;
         let tyguid = tyguid.as_fields();
         buf.write_all(&tyguid.0.to_le_bytes())?;
