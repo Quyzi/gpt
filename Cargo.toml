@@ -7,7 +7,7 @@ authors = ["Chris Ober <obercgit@gmail.com>", "Chris Holcombe <xfactor973@gmail.
 license = "MIT"
 homepage = "https://github.com/Quyzi/gpt"
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 
 [dependencies]
 bitflags = "2.0"
