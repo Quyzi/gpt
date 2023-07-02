@@ -1,6 +1,6 @@
 # gpt
 [![crates.io](https://img.shields.io/crates/v/gpt.svg)](https://crates.io/crates/gpt)
-![minimum rust 1.46](https://img.shields.io/badge/rust-1.46%2B-orange.svg)
+![minimum rust 1.60](https://img.shields.io/badge/rust-1.60%2B-orange.svg)
 [![Documentation](https://docs.rs/gpt/badge.svg)](https://docs.rs/gpt)
 
 A pure-Rust library to work with GPT partition tables.
