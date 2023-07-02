@@ -107,7 +107,7 @@ fn test_partition_from_name() {
 impl Type {
     /// Lookup a partition type by uuid
     pub fn from_uuid(u: &uuid::Uuid) -> Result<Self, String> {
-        let uuid_str = u.to_hyphenated().to_string().to_uppercase();
+        let uuid_str = u.as_hyphenated().to_string().to_uppercase();
         trace!("looking up partition type guid {}", uuid_str);
         Type::from_str(&uuid_str)
     }
