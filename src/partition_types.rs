@@ -244,6 +244,8 @@ partition_types! {
     (CHROME_ROOTFS, "3CB8E202-3B7E-47DD-8A3C-7FF2A13CFCEC",OperatingSystem::Chrome),
     /// ChromeOS Future Use
     (CHROME_FUTURE, "2E0A753D-9E48-43B0-8337-B15192CB1B5E",OperatingSystem::Chrome),
+    /// ChromeOS Firmware
+    (CHROME_RWFW, "CAB6E88E-ABF3-4102-A07A-D4BB9BE3C1D3", OperatingSystem::Chrome),
     /// CoreOS /usr partition (coreos-usr)
     (COREOS_USR, "5DFBF5F4-2848-4BAC-AA5E-0D9A20B745A6", OperatingSystem::CoreOs),
     /// CoreOS Resizable rootfs (coreos-resize)
