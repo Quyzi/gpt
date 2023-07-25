@@ -8,7 +8,7 @@ on:
 env:
   RUSTFLAGS: -Dwarnings
   # change manually in matrix
-  rust_min: 1.60.0
+  rust_min: 1.63.0
 
 jobs:
   check:
@@ -19,7 +19,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.60.0
+          - 1.63.0
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
@@ -35,7 +35,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.60.0
+          - 1.63.0
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
