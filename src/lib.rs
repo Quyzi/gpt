@@ -6,6 +6,7 @@
 //! ```
 //! use gpt;
 //! use std::convert::TryFrom;
+//! use std::io::{Read, Seek};
 //!
 //! fn inspect_disk() {
 //!     let diskpath = std::path::Path::new("/dev/sdz");
@@ -34,7 +35,7 @@
 //! /// Demonstrates how to create a new partition table without anything pre-existing
 //! fn create_partition_in_ram() {
 //!     const TOTAL_BYTES: usize = 1024 * 64;
-//!     let mut mem_device = Box::new(std::io::Cursor::new(vec![0u8; TOTAL_BYTES]));
+//!     let mut mem_device = std::io::Cursor::new(vec![0u8; TOTAL_BYTES]);
 //!
 //!     // Create a protective MBR at LBA0
 //!     let mbr = gpt::mbr::ProtectiveMBR::with_lb_size(
@@ -156,7 +157,7 @@ impl fmt::Display for GptError {
 }
 
 /// Configuration options to open a GPT disk.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GptConfig {
     /// Logical block size.
     lb_size: disk::LogicalBlockSize,
@@ -196,19 +197,20 @@ impl GptConfig {
 
     /// Open the GPT disk at the given path and inspect it according
     /// to configuration options.
-    pub fn open(self, diskpath: impl AsRef<path::Path>) -> Result<GptDisk<'static>, GptError> {
-        let file = Box::new(
-            fs::OpenOptions::new()
-                .write(self.writable)
-                .read(true)
-                .open(diskpath)?,
-        );
-        self.open_from_device(file as DiskDeviceObject)
+    pub fn open(self, diskpath: impl AsRef<path::Path>) -> Result<GptDisk<fs::File>, GptError> {
+        let file = fs::OpenOptions::new()
+            .write(self.writable)
+            .read(true)
+            .open(diskpath)?;
+        self.open_from_device(file)
     }
 
     /// Open the GPT disk from the given DiskDeviceObject and
     /// inspect it according to configuration options.
-    pub fn open_from_device(self, mut device: DiskDeviceObject) -> Result<GptDisk, GptError> {
+    pub fn open_from_device<D>(self, mut device: D) -> Result<GptDisk<D>, GptError>
+    where
+        D: DiskDevice,
+    {
         // Uninitialized disk, no headers/table to parse.
         if !self.initialized {
             return self.create_from_device(device, Some(uuid::Uuid::new_v4()));
@@ -232,11 +234,14 @@ impl GptConfig {
 
     /// Create a GPTDisk with default headers and an empty partition table.
     /// If guid is None then it will generate a new random guid.
-    pub fn create_from_device(
+    pub fn create_from_device<D>(
         self,
-        device: DiskDeviceObject,
+        device: D,
         guid: Option<uuid::Uuid>,
-    ) -> Result<GptDisk, GptError> {
+    ) -> Result<GptDisk<D>, GptError>
+    where
+        D: DiskDevice,
+    {
         if self.initialized {
             Err(GptError::CreatingInitializedDisk)
         } else {
@@ -265,17 +270,20 @@ impl Default for GptConfig {
 
 /// A GPT disk backed by an arbitrary device.
 #[derive(Debug)]
-pub struct GptDisk<'a> {
+pub struct GptDisk<D> {
     /// if you set config initialized this means there exists a primary_header
     config: GptConfig,
-    device: DiskDeviceObject<'a>,
+    device: D,
     guid: uuid::Uuid,
     primary_header: Option<header::Header>,
     backup_header: Option<header::Header>,
     partitions: BTreeMap<u32, partition::Partition>,
 }
 
-impl<'a> GptDisk<'a> {
+impl<D> GptDisk<D>
+where
+    D: DiskDevice,
+{
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
     /// Returns the new partition id if there was sufficient room
@@ -465,13 +473,26 @@ impl<'a> GptDisk<'a> {
 
     /// Change the disk device that we are reading/writing from/to.
     /// Returns the previous disk device.
-    pub fn update_disk_device(
-        &mut self,
-        device: DiskDeviceObject<'a>,
-        writable: bool,
-    ) -> DiskDeviceObject {
+    pub fn update_disk_device(&mut self, device: D, writable: bool) -> D {
         self.config.writable = writable;
         std::mem::replace(&mut self.device, device)
+    }
+
+    /// Updates the disk device that the GptDisk instance is interacting with.
+    /// Returns a new GptDisk instance, retaining the previous configuration and GUID,
+    /// but with the specified device and writable status.
+    pub fn with_disk_device<N>(&self, device: N, writable: bool) -> GptDisk<N> {
+        let mut n = GptDisk {
+            config: self.config.clone(),
+            device,
+            guid: self.guid.clone(),
+            primary_header: self.primary_header.clone(),
+            backup_header: self.backup_header.clone(),
+            partitions: self.partitions.clone(),
+        };
+        n.config.writable = writable;
+
+        n
     }
 
     /// Update disk UUID.
@@ -609,7 +630,7 @@ impl<'a> GptDisk<'a> {
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
     /// before returning the underlying DiskDeviceObject.
-    pub fn write(mut self) -> Result<DiskDeviceObject<'a>, GptError> {
+    pub fn write(mut self) -> Result<D, GptError> {
         self.write_inplace()?;
 
         Ok(self.device)
@@ -735,7 +756,7 @@ impl<'a> GptDisk<'a> {
     /// self to drop out of scope.
     ///
     /// Caution: this will abandon any changes that where not written.
-    pub fn take_device(self) -> DiskDeviceObject<'a> {
+    pub fn take_device(self) -> D {
         self.device
     }
 }

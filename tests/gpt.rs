@@ -3,7 +3,7 @@ use gpt;
 use gpt::{disk, partition_types};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use std::io::{SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path;
 use tempfile::NamedTempFile;
 
@@ -82,7 +82,7 @@ fn test_gpt_disk_write_fidelity_with_device() {
     let diskpath = path::Path::new("tests/fixtures/gpt-disk.img");
 
     // Assumes that test_gptdisk_linux_01 has passed, no need to check answers.
-    let mut gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
+    let gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
     let good_header1 = gdisk.primary_header().unwrap().clone();
     let good_header2 = gdisk.backup_header().unwrap().clone();
     let good_partitions = gdisk.partitions().clone();
@@ -94,7 +94,7 @@ fn test_gpt_disk_write_fidelity_with_device() {
     // instead, then load the results and verify they should be the same.
     let image_size = usize::try_from(std::fs::metadata(diskpath).unwrap().len()).unwrap();
     let mem_device = Box::new(std::io::Cursor::new(vec![0_u8; image_size]));
-    gdisk.update_disk_device(mem_device, true);
+    let gdisk = gdisk.with_disk_device(mem_device, true);
     let mut mem_device = gdisk.write().unwrap();
 
     // Write this memory buffer to a temp file, and load from the file to verify
@@ -156,7 +156,7 @@ fn test_create_simple_on_device() {
     mem_device.read_exact(&mut final_bytes).unwrap();
 }
 
-fn t_read_bytes(device: &mut gpt::DiskDeviceObject, offset: u64, bytes: usize) -> Vec<u8> {
+fn t_read_bytes<D: gpt::DiskDevice>(device: &mut D, offset: u64, bytes: usize) -> Vec<u8> {
     let mut buf = vec![0_u8; bytes];
     device.seek(std::io::SeekFrom::Start(offset)).unwrap();
     device.read_exact(&mut buf).unwrap();

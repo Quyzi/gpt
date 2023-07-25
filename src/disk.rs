@@ -1,7 +1,7 @@
 //! Disk-related types and helper functions.
 
 use super::{GptConfig, GptDisk, GptError};
-use std::{convert::TryFrom, fmt, io, path};
+use std::{convert::TryFrom, fmt, fs, io, path};
 
 /// Default size of a logical sector (bytes).
 pub const DEFAULT_SECTOR_SIZE: LogicalBlockSize = LogicalBlockSize::Lb512;
@@ -76,7 +76,7 @@ impl fmt::Display for LogicalBlockSize {
 /// let gpt_disk = gpt::disk::read_disk("/dev/sdz").unwrap();
 /// println!("{:#?}", gpt_disk);
 /// ```
-pub fn read_disk(diskpath: impl AsRef<path::Path>) -> Result<GptDisk<'static>, GptError> {
+pub fn read_disk(diskpath: impl AsRef<path::Path>) -> Result<GptDisk<fs::File>, GptError> {
     let cfg = GptConfig::new();
     cfg.open(diskpath)
 }
