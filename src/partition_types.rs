@@ -61,6 +61,8 @@ pub enum OperatingSystem {
     Windows,
     /// QNX
     QNX,
+    /// DragonFlyBSD
+    DragonFlyBsd,
 }
 
 impl FromStr for OperatingSystem {
@@ -73,6 +75,7 @@ impl FromStr for OperatingSystem {
             "atari" => Ok(OperatingSystem::Atari),
             "Ceph" => Ok(OperatingSystem::Ceph),
             "Chrome" => Ok(OperatingSystem::Chrome),
+            "DragonFlyBsd" => Ok(OperatingSystem::DragonFlyBsd),
             "FreeBsd" => Ok(OperatingSystem::FreeBsd),
             "FreeDesktop" => Ok(OperatingSystem::FreeDesktop),
             "Haiku" => Ok(OperatingSystem::Haiku),
@@ -174,6 +177,8 @@ partition_types! {
     (FREEBSD_VINIUM, "516E7CB8-6ECF-11D6-8FF8-00022D09712B", OperatingSystem::FreeBsd),
     /// FreeBSD ZFS Partition
     (FREEBSD_ZFS, "516E7CBA-6ECF-11D6-8FF8-00022D09712B", OperatingSystem::FreeBsd),
+    /// DragonFlyBsd container partition
+    (DRAGONFLY_DATA, "3D48CE54-1D16-11DC-8696-01301BB8A9F5", OperatingSystem::DragonFlyBsd),
     /// Apple Hierarchical File System Plus (HFS+) Partition
     (MACOS_HFSPLUS, "48465300-0000-11AA-AA11-00306543ECAC", OperatingSystem::MacOs),
     /// Apple UFS
