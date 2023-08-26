@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::disk;
@@ -18,7 +18,7 @@ use crate::header::{parse_uuid, Header};
 use crate::partition_types::Type;
 use crate::DiskDevice;
 
-use simple_bytes::Bytes;
+use simple_bytes::{Bytes, BytesRead};
 
 bitflags! {
     /// Partition entry attributes, defined for UEFI.
@@ -225,20 +225,6 @@ impl fmt::Display for Partition {
     }
 }
 
-fn read_part_name(rdr: &mut Cursor<&[u8]>) -> Result<String> {
-    trace!("Reading partition name");
-    let mut namebytes: Vec<u16> = Vec::new();
-    for _ in 0..36 {
-        let b = u16::from_le_bytes(read_exact_buff!(bbuff, rdr, 2));
-        if b == 0 {
-            break;
-        }
-        namebytes.push(b);
-    }
-
-    Ok(String::from_utf16_lossy(&namebytes))
-}
-
 /// Read a GPT partition table.
 ///
 /// ## Example
@@ -279,39 +265,50 @@ pub fn file_read_partitions<D: Read + Seek>(
     let _ = file.seek(SeekFrom::Start(pstart))?;
     let mut parts: BTreeMap<u32, Partition> = BTreeMap::new();
 
+    // todo how should we deal with unuals part_sizes?
+    assert_eq!(header.part_size, 128);
+
     trace!("scanning {} partitions", header.num_parts);
-    let mut count = 0;
+    let mut empty_parts = 0;
+    let empty_bytes = [0u8; 128];
     for i in 0..header.num_parts {
-        let mut bytes: [u8; 56] = [0; 56];
-        let mut nameraw: [u8; 72] = [0; 72];
+        let mut bytes = empty_bytes;
 
         file.read_exact(&mut bytes)?;
-        file.read_exact(&mut nameraw)?;
-
-        let test: [u8; 56] = [0; 56];
-        let test2: [u8; 72] = [0; 72];
         // Note: unused partition entries are zeroed, so skip them
-        if bytes.eq(&test[0..]) && nameraw.eq(&test2[0..]) {
-            count += 1;
-        } else {
-            let mut reader = Bytes::from(&bytes[..]);
-            let type_guid = parse_uuid(&mut reader)?;
-            let part_guid = parse_uuid(&mut reader)?;
-
-            let partname = read_part_name(&mut Cursor::new(&nameraw[..]))?;
-            let p = Partition {
-                part_type_guid: type_guid.into(),
-                part_guid,
-                first_lba: u64::from_le_bytes(read_exact_buff!(flba, reader, 8)),
-                last_lba: u64::from_le_bytes(read_exact_buff!(llba, reader, 8)),
-                flags: u64::from_le_bytes(read_exact_buff!(flagbuff, reader, 8)),
-                name: partname.to_string(),
-            };
-
-            parts.insert(i + 1, p);
+        if bytes.eq(&empty_bytes) {
+            empty_parts += 1;
+            continue;
         }
+
+        let mut reader = Bytes::from(&bytes[..]);
+        let type_guid = parse_uuid(&mut reader)?;
+        let part_guid = parse_uuid(&mut reader)?;
+        let first_lba = reader.read_le_u64();
+        let last_lba = reader.read_le_u64();
+        let flags = reader.read_le_u64();
+
+        let mut name_bytes = [0u16; 36];
+        let mut zero_pos = name_bytes.len();
+        for (i, byte) in name_bytes.iter_mut().enumerate() {
+            *byte = reader.read_le_u16();
+            if *byte == 0 {
+                zero_pos = zero_pos.min(i);
+            }
+        }
+
+        let p = Partition {
+            part_type_guid: type_guid.into(),
+            part_guid,
+            first_lba,
+            last_lba,
+            flags,
+            name: String::from_utf16_lossy(&name_bytes[..zero_pos]),
+        };
+
+        parts.insert(i + 1, p);
     }
-    debug!("Num Zeroed partitions {:?}\n\n", count);
+    debug!("Num Zeroed partitions {:?}\n\n", empty_parts);
 
     debug!("checking partition table CRC");
     let _ = file.seek(SeekFrom::Start(pstart))?;

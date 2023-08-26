@@ -1,40 +1,39 @@
 use gpt;
 
-use gpt::{disk, partition_types};
-use std::collections::BTreeMap;
+use gpt::{disk, partition_types, GptConfig, GptError};
 use std::convert::TryFrom;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path;
 use tempfile::NamedTempFile;
 
 #[test]
 fn test_gptconfig_empty() {
-    let tempdisk = NamedTempFile::new().expect("failed to create tempfile disk");
+    let mut tempdisk = NamedTempFile::new().expect("failed to create tempfile disk");
+    tempdisk.write(&[0; 1024 * 64]).unwrap();
     let cfg = {
-        let c1 = gpt::GptConfig::new();
-        let c2 = gpt::GptConfig::default();
+        let c1 = GptConfig::new();
+        let c2 = GptConfig::default();
         assert_eq!(c1, c2);
         c1
     };
 
     let lb_size = disk::LogicalBlockSize::Lb4096;
     let disk = cfg
-        .initialized(false)
         .logical_block_size(lb_size)
-        .open(tempdisk.path())
+        .create(tempdisk.path())
         .unwrap();
     assert_eq!(*disk.logical_block_size(), lb_size);
-    assert_eq!(disk.primary_header(), None);
-    assert_eq!(disk.backup_header(), None);
+    assert!(disk.primary_header().is_some());
+    assert!(disk.backup_header().is_some());
     assert!(disk.partitions().is_empty());
 }
 
 #[test]
-fn test_gpt_disk() {
+fn test_gpt_disk_read() {
     let diskpath = path::Path::new("tests/fixtures/gpt-disk.img");
     let lb_size = disk::LogicalBlockSize::Lb512;
 
-    let gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
+    let gdisk = GptConfig::new().open(diskpath).unwrap();
     assert_eq!(*gdisk.logical_block_size(), lb_size);
     assert!(gdisk.primary_header().is_some());
     assert!(gdisk.backup_header().is_some());
@@ -56,6 +55,7 @@ fn test_gpt_disk() {
     );
     assert_eq!(p1.first_lba, 34);
     assert_eq!(p1.last_lba, 34);
+    assert_eq!(p1.name, "");
 
     let p1_start = p1.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p1_start, 512 * 34);
@@ -70,6 +70,7 @@ fn test_gpt_disk() {
     );
     assert_eq!(p2.first_lba, 35);
     assert_eq!(p2.last_lba, 38);
+    assert_eq!(p2.name, "");
 
     let p2_start = p2.bytes_start(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p2_start, 512 * 35);
@@ -81,8 +82,8 @@ fn test_gpt_disk() {
 fn test_gpt_disk_write_fidelity_with_device() {
     let diskpath = path::Path::new("tests/fixtures/gpt-disk.img");
 
-    // Assumes that test_gptdisk_linux_01 has passed, no need to check answers.
-    let gdisk = gpt::GptConfig::new().open(diskpath).unwrap();
+    // Assumes that test_gpt_disk has passed, no need to check answers.
+    let gdisk = GptConfig::new().open(diskpath).unwrap();
     let good_header1 = gdisk.primary_header().unwrap().clone();
     let good_header2 = gdisk.backup_header().unwrap().clone();
     let good_partitions = gdisk.partitions().clone();
@@ -106,7 +107,7 @@ fn test_gpt_disk_write_fidelity_with_device() {
     tempdisk.write_all(&gpt_in_mem).unwrap();
     tempdisk.flush().unwrap();
 
-    let gdisk_file = gpt::GptConfig::new().open(tempdisk.path()).unwrap();
+    let gdisk_file = GptConfig::new().open(tempdisk.path()).unwrap();
     println!("file header1={:?}", gdisk_file.primary_header().unwrap());
     println!("file header2={:?}", gdisk_file.backup_header().unwrap());
     println!("file partitions={:#?}", gdisk_file.partitions());
@@ -115,7 +116,7 @@ fn test_gpt_disk_write_fidelity_with_device() {
     assert_eq!(gdisk_file.partitions().clone(), good_partitions);
 
     // Test that if we read it back from this memory buffer, it matches the known good.
-    let gdisk_mem = gpt::GptConfig::new().open_from_device(mem_device).unwrap();
+    let gdisk_mem = GptConfig::new().open_from_device(mem_device).unwrap();
     assert_eq!(gdisk_mem.primary_header().unwrap(), &good_header1);
     assert_eq!(gdisk_mem.backup_header().unwrap(), &good_header2);
     assert_eq!(gdisk_mem.partitions().clone(), good_partitions);
@@ -132,18 +133,12 @@ fn test_create_simple_on_device() {
     );
     mbr.overwrite_lba0(&mut mem_device).unwrap();
 
-    let mut gdisk = gpt::GptConfig::default()
-        .initialized(false)
+    let mut gdisk = GptConfig::default()
         .writable(true)
         .logical_block_size(disk::LogicalBlockSize::Lb512)
         .create_from_device(mem_device, None)
         .unwrap();
-    // Initialize the headers using a blank partition table
-    gdisk
-        .update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new())
-        .unwrap();
-    // At this point, gdisk.primary_header() and gdisk.backup_header() are populated...
-    // Add a few partitions to demonstrate how...
+
     gdisk
         .add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None)
         .unwrap();
@@ -161,6 +156,171 @@ fn t_read_bytes<D: gpt::DiskDevice>(device: &mut D, offset: u64, bytes: usize) -
     device.seek(std::io::SeekFrom::Start(offset)).unwrap();
     device.read_exact(&mut buf).unwrap();
     buf
+}
+
+#[test]
+fn test_only_valid_headers() {
+    // write a valid disk
+    let mut valid_disk = GptConfig::new()
+        .writable(true)
+        .create_from_device(Cursor::new(vec![0; 1024 * 68]), None)
+        .unwrap();
+
+    valid_disk
+        .add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None)
+        .unwrap();
+    valid_disk
+        .add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
+        .unwrap();
+
+    // now write to memory
+    let valid_disk = valid_disk.write().unwrap();
+    let mut corrupt_disk = valid_disk.clone();
+    corrupt_disk.get_mut()[..1024 * 32]
+        .iter_mut()
+        .for_each(|v| *v = 0);
+    // override the first bytes so we need to read the backup header
+
+    let first_try = GptConfig::new()
+        .only_valid_headers(true)
+        .open_from_device(&mut corrupt_disk);
+    assert!(first_try.is_err());
+
+    // lets try to write without changing any header
+    let mut second_try = GptConfig::new()
+        .writable(true)
+        .open_from_device(corrupt_disk.clone())
+        .unwrap();
+
+    second_try.write_inplace().unwrap();
+    assert_eq!(&valid_disk, second_try.device_ref());
+
+    assert_eq!(second_try.partitions()[&1].name, "test1");
+}
+
+#[test]
+fn test_readonly_backup() {
+    // write a valid disk
+    let mut valid_disk = GptConfig::new()
+        .writable(true)
+        .create_from_device(Cursor::new(vec![0; 1024 * 68]), None)
+        .unwrap();
+
+    valid_disk
+        .add_partition("test1", 1024 * 12, gpt::partition_types::BASIC, 0, None)
+        .unwrap();
+    valid_disk
+        .add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
+        .unwrap();
+
+    // now write to memory
+    valid_disk.write_inplace().unwrap();
+    let valid_disk_bytes = valid_disk.device_ref();
+    let test_disk_bytes = valid_disk_bytes.clone();
+
+    let mut test_disk = GptConfig::new()
+        .writable(true)
+        .readonly_backup(true)
+        .open_from_device(test_disk_bytes)
+        .unwrap();
+
+    // change something
+    test_disk
+        .add_partition("test3", 1024 * 4, gpt::partition_types::LINUX_FS, 0, None)
+        .unwrap();
+
+    test_disk.write_inplace().unwrap();
+    let test_disk_bytes = test_disk.device_ref();
+
+    let primary_end = 512 * (1 + 1 + 32);
+    assert_ne!(
+        test_disk_bytes.get_ref()[..primary_end],
+        valid_disk_bytes.get_ref()[..primary_end]
+    );
+    let backup_start = test_disk_bytes.get_ref().len() - 512 * (1 + 32);
+    assert_eq!(
+        test_disk_bytes.get_ref()[backup_start..],
+        valid_disk_bytes.get_ref()[backup_start..]
+    );
+}
+
+#[test]
+fn test_change_partition_count() {
+    let size = 67 + 128;
+
+    // write a valid disk
+    let mut valid_disk = GptConfig::new()
+        .writable(true)
+        .create_from_device(Cursor::new(vec![0; 512 * size]), None)
+        .unwrap();
+
+    // let's create 128 partitions
+    for i in 0..128 {
+        valid_disk
+            .add_partition(
+                &format!("test{i}"),
+                512,
+                gpt::partition_types::BASIC,
+                0,
+                None,
+            )
+            .unwrap();
+    }
+
+    let failed = valid_disk.add_partition(
+        &format!("test129"),
+        512,
+        gpt::partition_types::BASIC,
+        0,
+        None,
+    );
+    assert!(matches!(failed, Err(GptError::PartitionCountWouldChange)));
+
+    // now write to memory
+    valid_disk.write_inplace().unwrap();
+
+    // test when we are allowed to change
+    let mut big_disk = GptConfig::new()
+        .writable(true)
+        .change_partition_count(true)
+        .create_from_device(Cursor::new(vec![0; 512 * size]), None)
+        .unwrap();
+
+    // let's create 128 partitions
+    for i in 0..129 {
+        big_disk
+            .add_partition(
+                &format!("test{i}"),
+                512,
+                gpt::partition_types::BASIC,
+                0,
+                None,
+            )
+            .unwrap();
+    }
+
+    let data = big_disk.write().unwrap();
+
+    let mut n_disk = GptConfig::new()
+        .writable(true)
+        .open_from_device(data.clone())
+        .unwrap();
+    n_disk.write_inplace().unwrap();
+
+    assert_eq!(&data, n_disk.device_ref());
+
+    // this would reduce the num parts let's make sure it does not cause a part Count WouldChange
+    n_disk.remove_partition(129);
+    n_disk.remove_partition(128);
+    n_disk
+        .add_partition("test128", 512, gpt::partition_types::BASIC, 0, None)
+        .unwrap();
+
+    n_disk.write_inplace().unwrap();
+
+    assert_eq!(n_disk.header().num_parts, 129);
+    assert_eq!(n_disk.partitions().len(), 128);
+    assert_ne!(valid_disk.header().num_parts, n_disk.header().num_parts);
 }
 
 fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::LogicalBlockSize) {
@@ -185,15 +345,10 @@ fn test_helper_gptdisk_write_efi_unused_partition_entries(lb_size: disk::Logical
     let mem_device = Box::new(std::io::Cursor::new(vec![255u8; total_bytes]));
 
     // Setup a new partition table and add a couple entries to it.
-    let mut gdisk = gpt::GptConfig::default()
-        .initialized(false)
+    let mut gdisk = GptConfig::default()
         .writable(true)
         .logical_block_size(lb_size)
         .create_from_device(mem_device, None)
-        .unwrap();
-    // Initialize the headers using a blank partition table.
-    gdisk
-        .update_partitions(BTreeMap::<u32, gpt::partition::Partition>::new())
         .unwrap();
 
     let part1_bytes = 3 * lb_bytes;

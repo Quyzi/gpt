@@ -30,7 +30,7 @@ impl HeaderBuilder {
             backup_lba: 0,
             first_usable: 0,
             last_usable: 0,
-            num_parts: 128,
+            num_parts: super::MIN_NUM_PARTS,
             part_size: 128,
         }
     }
@@ -102,7 +102,7 @@ impl HeaderBuilder {
     /// ## Warning
     /// This might change the first usable and last usable part
     pub fn num_parts(&mut self, num_parts: u32) -> &mut Self {
-        self.num_parts = num_parts.max(128);
+        self.num_parts = num_parts.max(super::MIN_NUM_PARTS);
         self
     }
 

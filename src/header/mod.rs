@@ -15,6 +15,8 @@ use crate::disk;
 
 use simple_bytes::{BytesArray, BytesRead, BytesSeek, BytesWrite};
 
+const MIN_NUM_PARTS: u32 = 128;
+
 #[non_exhaustive]
 #[derive(Debug)]
 /// Errors returned when interacting with a header.
@@ -86,7 +88,8 @@ pub struct Header {
     pub revision: (u16, u16), // Offset  8
     /// little endian
     pub header_size_le: u32, // Offset 12
-    /// CRC32 of the header with crc32 section zeroed
+    /// CRC32 of the header, will be incorrect after changing something until the
+    /// header get's written
     pub crc32: u32, // Offset 16
     /// must be 0
     pub reserved: u32, // Offset 20
@@ -106,17 +109,15 @@ pub struct Header {
     pub num_parts: u32, // Offset 80
     /// Size of a partition entry, usually 128
     pub part_size: u32, // Offset 84
-    /// CRC32 of the partition table
+    /// CRC32 of the partition table, will be incorrect after changing something until the
+    /// header get's written
     pub crc32_parts: u32, // Offset 88
 }
 
 impl Header {
     /// Write the primary header.
-    ///
-    /// With a CRC32 set to zero this will set the crc32 after
-    /// writing the header out.
     pub fn write_primary<D: Read + Write + Seek>(
-        &self,
+        &mut self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<usize, HeaderError> {
@@ -132,11 +133,8 @@ impl Header {
     }
 
     /// Write the backup header.
-    ///
-    /// With a CRC32 set to zero this will set the crc32 after
-    /// writing the header out.
     pub fn write_backup<D: Read + Write + Seek>(
-        &self,
+        &mut self,
         file: &mut D,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<usize, HeaderError> {
@@ -152,24 +150,27 @@ impl Header {
     }
 
     /// Write an header to an arbitrary LBA.
-    ///
-    /// With a CRC32 set to zero this will set the crc32 after
-    /// writing the header out.
     fn file_write_header<D: Read + Write + Seek>(
-        &self,
+        &mut self,
         file: &mut D,
         lba: u64,
         lb_size: disk::LogicalBlockSize,
     ) -> Result<usize, HeaderError> {
         // Build up byte array in memory
         let parts_checksum = partentry_checksum(file, self, lb_size)?;
+        self.crc32_parts = parts_checksum;
         trace!("computed partitions CRC32: {:#x}", parts_checksum);
-        let bytes = self.to_bytes(None, Some(parts_checksum));
-        trace!("bytes before checksum: {:?}", bytes);
+        let (checksum_pos, mut header_bytes) = self.to_bytes(parts_checksum);
+        trace!("bytes before checksum: {:?}", header_bytes);
 
         // Calculate the CRC32 from the byte array
-        let checksum = calculate_crc32(&bytes);
+        let checksum = calculate_crc32(header_bytes.as_slice());
+        self.crc32 = checksum;
         trace!("computed header CRC32: {:#x}", checksum);
+
+        // write checksum to bytes
+        BytesSeek::seek(&mut header_bytes, checksum_pos);
+        header_bytes.write_le_u32(checksum);
 
         // Write it to disk in 1 shot
         let start = lba
@@ -177,18 +178,24 @@ impl Header {
             .ok_or(HeaderError::Overflow("writing header: lba * lbs"))?;
         trace!("Seeking to {}", start);
         let _ = file.seek(SeekFrom::Start(start))?;
-        let header_bytes = self.to_bytes(Some(checksum), Some(parts_checksum));
         // Per the spec, the rest of the logical block must be zeros...
         let mut bytes = Vec::with_capacity(lb_size.as_usize());
-        bytes.extend_from_slice(&header_bytes);
+        bytes.extend_from_slice(header_bytes.as_slice());
         bytes.resize(lb_size.as_usize(), 0);
-        let len = file.write(&bytes)?;
-        trace!("Wrote {} bytes", len);
+        file.write_all(&bytes)?;
+        trace!("Wrote {} bytes", bytes.len());
 
-        Ok(len)
+        Ok(bytes.len())
     }
 
-    fn to_bytes(&self, header_checksum: Option<u32>, partitions_checksum: Option<u32>) -> [u8; 92] {
+    /// Returns true if the num parts changes
+    pub(crate) fn num_parts_would_change(&self, partitions_len: u32) -> bool {
+        let n_num_parts = partitions_len.max(MIN_NUM_PARTS).max(self.num_parts);
+        self.num_parts != n_num_parts
+    }
+
+    /// returns the position where the checksum should be written
+    fn to_bytes(&self, partitions_checksum: u32) -> (usize, BytesArray<92>) {
         let mut bytes = BytesArray::from([0u8; 92]);
         let disk_guid_fields = self.disk_guid.as_fields();
 
@@ -196,7 +203,8 @@ impl Header {
         bytes.write_le_u16(self.revision.1);
         bytes.write_le_u16(self.revision.0);
         bytes.write_le_u32(self.header_size_le);
-        bytes.write_le_u32(header_checksum.unwrap_or_default());
+        let checksum_position = bytes.position();
+        bytes.write_le_u32(0);
         bytes.write_le_u32(0);
         bytes.write_le_u64(self.current_lba);
         bytes.write_le_u64(self.backup_lba);
@@ -209,9 +217,9 @@ impl Header {
         bytes.write_le_u64(self.part_start);
         bytes.write_le_u32(self.num_parts);
         bytes.write_le_u32(self.part_size);
-        bytes.write_le_u32(partitions_checksum.unwrap_or_default());
+        bytes.write_le_u32(partitions_checksum);
 
-        bytes.into_array()
+        (checksum_position, bytes)
     }
 }
 
@@ -340,6 +348,8 @@ pub(crate) fn file_read_header<D: Read + Seek>(
     BytesSeek::seek(&mut bytes, 16);
     bytes.write_u32(0);
 
+    // todo should probably also validate the partitions crc32
+
     let c = calculate_crc32(bytes.as_slice());
     trace!("header CRC32: {:#x} - computed CRC32: {:#x}", h.crc32, c);
     if c == h.crc32 {
@@ -349,6 +359,7 @@ pub(crate) fn file_read_header<D: Read + Seek>(
     }
 }
 
+/// get the backup position in lba
 pub(crate) fn find_backup_lba<D: Read + Seek>(
     f: &mut D,
     sector_size: disk::LogicalBlockSize,
@@ -434,7 +445,7 @@ pub fn write_header(
         header.disk_guid(uuid);
     }
 
-    let header = header.backup_lba(bak).build(sector_size)?;
+    let mut header = header.backup_lba(bak).build(sector_size)?;
 
     debug!("new header: {:#?}", header);
     header.write_primary(&mut file, sector_size)?;
@@ -539,13 +550,13 @@ mod tests {
     fn write_gpt_disk() {
         let lb_size = LogicalBlockSize::Lb512;
 
-        let primary = HeaderBuilder::new()
+        let mut primary = HeaderBuilder::new()
             .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
             .backup_lba(71)
             .build(lb_size)
             .unwrap();
 
-        let backup = HeaderBuilder::new()
+        let mut backup = HeaderBuilder::new()
             .disk_guid("1B6A2BFA-E92B-184C-A8A7-ED0610D54821".parse().unwrap())
             .backup_lba(71)
             .primary(false)
