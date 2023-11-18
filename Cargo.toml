@@ -1,21 +1,32 @@
 [package]
 name = "gpt"
-version = "4.0.0-alpha.1"
+version = "4.0.0-alpha.2"
 description = "A pure-Rust library to work with GPT partition tables."
 documentation = "https://docs.rs/gpt"
-authors = ["Chris Ober <obercgit@gmail.com>", "Chris Holcombe <xfactor973@gmail.com>", "Luca Bruno <lucab@debian.org>"]
+authors = [
+	"Chris Ober <obercgit@gmail.com>",
+	"Chris Holcombe <xfactor973@gmail.com>",
+	"Luca Bruno <lucab@debian.org>",
+	"Sören Meier <s@renmeier.ch>"
+]
 license = "MIT"
 homepage = "https://github.com/Quyzi/gpt"
 edition = "2021"
 rust-version = "1.63"
 
+[features]
+# enable logging via the log crate
+log = ["dep:log"]
+# enable logging via the tracing crate
+tracing = ["dep:tracing"]
+
 [dependencies]
 bitflags = "2.0"
 crc = "3.0"
-log = "0.4.18"
+log = { version = "0.4.18", optional = true }
+tracing = { version = "0.1.30", optional = true }
 uuid = { version = "1.3.4", features = ["v4"] }
 simple-bytes = "0.2.13"
 
 [dev-dependencies]
-simplelog = "0.11"
 tempfile = "3.0"

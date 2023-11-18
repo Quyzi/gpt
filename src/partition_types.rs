@@ -1,6 +1,5 @@
 //! Parition type constants
 use ::uuid::Uuid;
-use log::trace;
 use std::str::FromStr;
 
 /// The type

@@ -26,6 +26,9 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - run: cargo check
+      - run: cargo check --features "log"
+      - run: cargo check --features "tracing"
+      - run: cargo check --all-features
 
   test:
     name: Test Suite
@@ -42,6 +45,9 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - run: cargo test
+      - run: cargo test --features "log"
+      - run: cargo test --features "tracing"
+      - run: cargo test --all-features
 
   clippy:
     name: Clippy
@@ -52,7 +58,7 @@ jobs:
         with:
           toolchain: ${{ env.rust_min }}
           components: clippy
-      - run: cargo clippy
+      - run: cargo clippy --all-features
 
   fmt:
     name: Formatting

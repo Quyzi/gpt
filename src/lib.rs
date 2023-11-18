@@ -70,13 +70,14 @@
 
 #![deny(missing_docs)]
 
-use log::*;
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
 use std::{fmt, fs, io, path};
 
 #[macro_use]
 mod macros;
+#[macro_use]
+mod logging;
 pub mod disk;
 pub mod header;
 pub mod mbr;

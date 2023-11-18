@@ -5,7 +5,6 @@
 
 use bitflags::*;
 use crc::Crc;
-use log::*;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::fmt;

@@ -13,13 +13,9 @@ tables. It supports any  that implements the `Read + Write + Seek + Debug` trait
 ```rust
 use gpt;
 
-use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::io;
 
 fn main() {
-    // Setup logging
-    let _ = SimpleLogger::init(LevelFilter::Warn, Config::default());
-
     // Inspect disk image, handling errors.
     if let Err(e) = run() {
         eprintln!("Failed to inspect image: {}", e);

@@ -5,7 +5,6 @@ mod builder;
 pub use builder::HeaderBuilder;
 
 use crc::Crc;
-use log::*;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Error, Read, Seek, SeekFrom, Write};

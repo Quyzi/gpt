@@ -1,12 +1,8 @@
 use gpt;
 
-use simplelog::{Config, LevelFilter, SimpleLogger};
 use std::error::Error;
 
 fn main() {
-    // Setup logging
-    let _ = SimpleLogger::init(LevelFilter::Warn, Config::default());
-
     // Inspect disk image, handling errors.
     if let Err(e) = run() {
         eprintln!("Failed to inspect image: {}", e);
@@ -16,7 +12,7 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     // First parameter is target disk image (optional, default: fixtures sample)
-    let sample = "tests/fixtures/gpt-linux-disk-01.img".to_string();
+    let sample = "tests/fixtures/gpt-disk.img".to_string();
     let input = std::env::args().nth(1).unwrap_or(sample);
 
     // Open disk image.
