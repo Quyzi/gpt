@@ -23,8 +23,8 @@ fn test_gptconfig_empty() {
         .create(tempdisk.path())
         .unwrap();
     assert_eq!(*disk.logical_block_size(), lb_size);
-    assert!(disk.primary_header().is_some());
-    assert!(disk.backup_header().is_some());
+    assert!(disk.primary_header().is_ok());
+    assert!(disk.backup_header().is_ok());
     assert!(disk.partitions().is_empty());
 }
 
@@ -35,8 +35,8 @@ fn test_gpt_disk_read() {
 
     let gdisk = GptConfig::new().open(diskpath).unwrap();
     assert_eq!(*gdisk.logical_block_size(), lb_size);
-    assert!(gdisk.primary_header().is_some());
-    assert!(gdisk.backup_header().is_some());
+    assert!(gdisk.primary_header().is_ok());
+    assert!(gdisk.backup_header().is_ok());
     assert_eq!(gdisk.partitions().len(), 2);
 
     let h1 = gdisk.primary_header().unwrap();

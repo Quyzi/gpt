@@ -84,6 +84,9 @@ pub mod mbr;
 pub mod partition;
 pub mod partition_types;
 
+use header::HeaderError;
+use macros::ResultInsert;
+
 /// A generic device that we can read/write partitions from/to.
 pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
 /// Implement the DiskDevice trait for anything that meets the
@@ -99,7 +102,7 @@ pub enum GptError {
     /// Generic IO Error
     Io(io::Error),
     /// Error returned from writing or reading the header
-    Header(header::HeaderError),
+    Header(HeaderError),
     /// we were expecting to read an existing partition table, but instead we're
     /// attempting to create a new blank table
     CreatingInitializedDisk,
@@ -122,8 +125,8 @@ impl From<io::Error> for GptError {
     }
 }
 
-impl From<header::HeaderError> for GptError {
-    fn from(e: header::HeaderError) -> Self {
+impl From<HeaderError> for GptError {
+    fn from(e: HeaderError) -> Self {
         Self::Header(e)
     }
 }
@@ -261,11 +264,11 @@ impl GptConfig {
         let h2 = header::read_backup_header(&mut device, self.lb_size);
 
         let (h1, h2) = if self.only_valid_headers {
-            (Some(h1?), Some(h2?))
+            (Ok(h1?), Ok(h2?))
         } else if h1.is_err() && h2.is_err() {
             return Err(h1.unwrap_err().into());
         } else {
-            (h1.ok(), h2.ok())
+            (h1, h2)
         };
 
         let header = h1.as_ref().or(h2.as_ref()).unwrap();
@@ -297,8 +300,8 @@ impl GptConfig {
             config: self,
             device,
             guid: guid.unwrap_or_else(uuid::Uuid::new_v4),
-            primary_header: None,
-            backup_header: None,
+            primary_header: Err(HeaderError::InvalidGptSignature),
+            backup_header: Err(HeaderError::InvalidGptSignature),
             partitions: BTreeMap::new(),
         };
         // setup default headers
@@ -326,8 +329,8 @@ pub struct GptDisk<D> {
     config: GptConfig,
     device: D,
     guid: uuid::Uuid,
-    primary_header: Option<header::Header>,
-    backup_header: Option<header::Header>,
+    primary_header: Result<header::Header, HeaderError>,
+    backup_header: Result<header::Header, HeaderError>,
     /// partition: 0 does never exist
     partitions: BTreeMap<u32, partition::Partition>,
 }
@@ -497,20 +500,23 @@ where
     }
 
     /// Retrieve primary header, if any.
-    pub fn primary_header(&self) -> Option<&header::Header> {
-        self.primary_header.as_ref()
+    pub fn primary_header(&self) -> Result<&header::Header, HeaderError> {
+        self.primary_header.as_ref().map_err(|e| e.lossy_clone())
     }
 
     /// Retrieve backup header, if any.
-    pub fn backup_header(&self) -> Option<&header::Header> {
-        self.backup_header.as_ref()
+    pub fn backup_header(&self) -> Result<&header::Header, HeaderError> {
+        self.backup_header.as_ref().map_err(|e| e.lossy_clone())
     }
 
     /// Retrieve the current valid header.
     ///
     /// This can only fail while we're building the disk
-    fn try_header(&self) -> Option<&header::Header> {
-        self.primary_header.as_ref().or(self.backup_header.as_ref())
+    fn try_header(&self) -> Result<&header::Header, HeaderError> {
+        self.primary_header
+            .as_ref()
+            .or(self.backup_header.as_ref())
+            .map_err(|e| e.lossy_clone())
     }
 
     /// Retrieve the current valid header.
@@ -553,8 +559,16 @@ where
             config: self.config.clone(),
             device,
             guid: self.guid,
-            primary_header: self.primary_header.clone(),
-            backup_header: self.backup_header.clone(),
+            primary_header: self
+                .primary_header
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(|e| e.lossy_clone()),
+            backup_header: self
+                .backup_header
+                .as_ref()
+                .map(Clone::clone)
+                .map_err(|e| e.lossy_clone()),
             partitions: self.partitions.clone(),
         };
         n.config.writable = writable;
@@ -618,13 +632,13 @@ where
             .disk_guid(self.guid)
             .primary(true)
             .build(self.config.lb_size)?;
-        let header = self.primary_header.insert(h1);
+        let header = self.primary_header.insert_ok(h1);
 
         if !self.config.readonly_backup {
             let h2 = header::HeaderBuilder::from_header(header)
                 .primary(false)
                 .build(self.config.lb_size)?;
-            self.backup_header = Some(h2);
+            self.backup_header = Ok(h2);
         }
 
         Ok(())
@@ -662,14 +676,14 @@ where
         let primary_header = header::HeaderBuilder::from_header(self.header())
             .primary(true)
             .build(self.config.lb_size)?;
-        let primary_header = self.primary_header.insert(primary_header);
+        let primary_header = self.primary_header.insert_ok(primary_header);
 
         let backup_header = if !self.config.readonly_backup {
             let header = header::HeaderBuilder::from_header(primary_header)
                 .primary(false)
                 .build(self.config.lb_size)?;
 
-            Some(self.backup_header.insert(header))
+            Some(self.backup_header.insert_ok(header))
         } else {
             None
         };

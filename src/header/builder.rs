@@ -57,8 +57,10 @@ impl HeaderBuilder {
         }
     }
 
-    pub(crate) fn from_maybe_header(header: Option<&Header>) -> Self {
-        header.map(Self::from_header).unwrap_or_else(Self::new)
+    pub(crate) fn from_maybe_header(header: Result<&Header, HeaderError>) -> Self {
+        header
+            .map(Self::from_header)
+            .unwrap_or_else(|_| Self::new())
     }
 
     /// Set wether this header is the primary or the backup.

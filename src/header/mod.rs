@@ -47,6 +47,21 @@ pub enum HeaderError {
     ToSmallForBackup,
 }
 
+impl HeaderError {
+    pub(crate) fn lossy_clone(&self) -> Self {
+        match self {
+            Self::Io(e) => Self::Io(Error::from(e.kind())),
+            Self::InvalidGptSignature => Self::InvalidGptSignature,
+            Self::InvalidCRC32Checksum => Self::InvalidCRC32Checksum,
+            Self::MissingBackupLba => Self::MissingBackupLba,
+            Self::BackupLbaToEarly => Self::BackupLbaToEarly,
+            Self::WritingToWrongLba => Self::WritingToWrongLba,
+            Self::Overflow(m) => Self::Overflow(m),
+            Self::ToSmallForBackup => Self::ToSmallForBackup,
+        }
+    }
+}
+
 impl From<Error> for HeaderError {
     fn from(e: Error) -> Self {
         Self::Io(e)
