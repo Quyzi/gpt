@@ -171,15 +171,9 @@ impl Partition {
     /// Partition size is calculated as (last_lba + 1 - first_lba) * block_size
     /// Bounds are inclusive, meaning we add one to account for the full last logical block
     pub fn bytes_len(&self, lb_size: disk::LogicalBlockSize) -> Result<u64> {
-        let len = self
-            .last_lba
-            .checked_sub(self.first_lba)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length underflow - sectors"))?
-            .checked_add(1)
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - sectors"))?
+        self.sectors_len()?
             .checked_mul(lb_size.into())
-            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - bytes"))?;
-        Ok(len)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - bytes"))
     }
 
     /// Return the starting offset (in bytes) of this partition.
@@ -196,15 +190,15 @@ impl Partition {
         self.part_type_guid.guid != crate::partition_types::UNUSED.guid
     }
 
-    /// Return the number of sectors in the partition.
-    pub fn size(&self) -> Result<u64> {
-        match self.last_lba.checked_sub(self.first_lba) {
-            Some(size) => Ok(size),
-            None => Err(Error::new(
-                ErrorKind::Other,
-                "Invalid partition.  last_lba < first_lba",
-            )),
-        }
+    /// Return the length (in sectors) of this partition.
+    pub fn sectors_len(&self) -> Result<u64> {
+        self.last_lba
+            .checked_sub(self.first_lba)
+            .ok_or_else(|| {
+                Error::new(ErrorKind::Other, "Invalid partition.  last_lba < first_lba")
+            })?
+            .checked_add(1)
+            .ok_or_else(|| Error::new(ErrorKind::Other, "partition length overflow - sectors"))
     }
 }
 
@@ -344,13 +338,16 @@ mod tests {
     }
 
     #[test]
-    fn test_part_bytes_len() {
+    fn test_part_len() {
         {
             // Zero.
             let p0 = partition::Partition::zero();
+            let sectors = p0.sectors_len().unwrap();
             let b512len = p0.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
             let b4096len = p0.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
 
+            // partition sector sizes are inclusive so the minimal size is 1
+            assert_eq!(sectors, 1);
             // The lower bound of partition size is equal to the logical block size.
             // This is because the bounds for the partition size are inclusive and use
             // logical block addressing, meaning that even when the lba_start and lba_end
@@ -363,6 +360,7 @@ mod tests {
             // Negative length.
             let mut p1 = partition::Partition::zero();
             p1.first_lba = p1.last_lba + 1;
+            p1.sectors_len().unwrap_err();
             p1.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
             p1.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
         }
@@ -371,6 +369,7 @@ mod tests {
             // Overflowing u64 length.
             let mut p2 = partition::Partition::zero();
             p2.last_lba = <u64>::max_value();
+            p2.sectors_len().unwrap_err();
             p2.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
             p2.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
         }
@@ -380,9 +379,11 @@ mod tests {
             let mut p3 = partition::Partition::zero();
             p3.first_lba = 2;
             p3.last_lba = 3;
+            let sectors = p3.sectors_len().unwrap();
             let b512len = p3.bytes_len(disk::LogicalBlockSize::Lb512).unwrap();
             let b4096len = p3.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap();
 
+            assert_eq!(sectors, 2);
             assert_eq!(b512len, 2 * 512);
             assert_eq!(b4096len, 2 * 4096);
         }
