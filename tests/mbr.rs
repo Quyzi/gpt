@@ -1,5 +1,3 @@
-use tempfile;
-
 use gpt::{disk, mbr};
 use std::fs::File;
 use std::io::Read;

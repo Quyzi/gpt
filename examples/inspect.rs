@@ -1,5 +1,3 @@
-use gpt;
-
 use std::error::Error;
 
 fn main() {

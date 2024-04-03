@@ -1,7 +1,5 @@
-use gpt;
-
 use gpt::{disk, partition_types, GptConfig, GptError};
-use std::convert::TryFrom;
+
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path;
 use tempfile::NamedTempFile;
