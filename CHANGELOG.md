@@ -1,3 +1,11 @@
+### v4.0.0-rc.2 (2024-04-04)
+
+#### Changes
+
+* remove `Partition::size` and replace it with `sectors_len` which returns the correct number of sectors
+* `GptDisk::{primary_header, backup_header, try_header}` now return an error instead of just `Option`
+
+
 ### v4.0.0-rc.1 (2023-11-18)
 
 #### Behaviour changes
@@ -28,3 +36,4 @@
 * add `HeaderBuilder` to simplify creating a header (replaces Header::compute_new)
 * add `GptDisk::take_device`
 * Support custom partition GUIDs
+* logging is now optional use the `log` or `tracing` feature to use the appropriate logging crate

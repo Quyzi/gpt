@@ -1,5 +1,4 @@
 /// creates a log on the trace level
-#[macro_export]
 macro_rules! trace {
 	($($expr:expr),*) => (
 		#[cfg(feature = "tracing")]
@@ -20,7 +19,6 @@ macro_rules! trace {
 }
 
 /// creates a log on the debug level
-#[macro_export]
 macro_rules! debug {
 	($($expr:expr),*) => (
 		#[cfg(feature = "tracing")]
@@ -41,7 +39,7 @@ macro_rules! debug {
 }
 
 /// allow expressions to be unused
-#[macro_export]
+#[allow(unused)]
 macro_rules! log_allow_unused {
 	($($expr:expr),*) => (
 		$(
