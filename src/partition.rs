@@ -6,7 +6,6 @@
 use bitflags::*;
 use crc::Crc;
 use std::collections::BTreeMap;
-use std::convert::TryFrom;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
