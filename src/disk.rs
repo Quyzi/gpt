@@ -1,7 +1,7 @@
 //! Disk-related types and helper functions.
 
 use super::{GptConfig, GptDisk, GptError};
-use std::{convert::TryFrom, fmt, fs, io, path};
+use std::{fmt, fs, io, path};
 
 /// Default size of a logical sector (bytes).
 pub const DEFAULT_SECTOR_SIZE: LogicalBlockSize = LogicalBlockSize::Lb512;
