@@ -1,6 +1,6 @@
 [package]
 name = "gpt"
-version = "4.0.0-rc.2"
+version = "4.0.0-rc.3"
 description = "A pure-Rust library to work with GPT partition tables."
 documentation = "https://docs.rs/gpt"
 authors = [
