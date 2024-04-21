@@ -335,6 +335,27 @@ pub struct GptDisk<D> {
     partitions: BTreeMap<u32, partition::Partition>,
 }
 
+impl<D: Clone> Clone for GptDisk<D> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            device: self.device.clone(),
+            guid: self.guid,
+            primary_header: self
+                .primary_header
+                .as_ref()
+                .map_err(|e| e.lossy_clone())
+                .cloned(),
+            backup_header: self
+                .backup_header
+                .as_ref()
+                .map_err(|e| e.lossy_clone())
+                .cloned(),
+            partitions: self.partitions.clone(),
+        }
+    }
+}
+
 impl<D> GptDisk<D> {
     /// Retrieve primary header, if any.
     pub fn primary_header(&self) -> Result<&header::Header, HeaderError> {
