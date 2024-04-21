@@ -14,11 +14,7 @@ pub mod pub_macros {
                 match res_u {
                     Ok(u) => return u,
                     Err(_) => {
-                        // const_panic requires 1.57
-                        #[allow(unconditional_panic)]
-                        ["string was not an uuid"][1];
-                        // never type
-                        loop {}
+                        panic!("string was not an uuid");
                     },
                 }
             }

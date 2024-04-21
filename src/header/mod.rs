@@ -297,7 +297,7 @@ pub(crate) fn read_primary_header<D: Read + Seek>(
     file: &mut D,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<Header, HeaderError> {
-    let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
+    let cur = file.stream_position().unwrap_or(0);
     let offset: u64 = sector_size.into();
     let res = file_read_header(file, offset);
     let _ = file.seek(SeekFrom::Start(cur));
@@ -308,7 +308,7 @@ pub(crate) fn read_backup_header<D: Read + Seek>(
     file: &mut D,
     sector_size: disk::LogicalBlockSize,
 ) -> Result<Header, HeaderError> {
-    let cur = file.seek(SeekFrom::Current(0)).unwrap_or(0);
+    let cur = file.stream_position().unwrap_or(0);
     let h2sect = find_backup_lba(file, sector_size)?;
     let offset = h2sect
         .checked_mul(sector_size.into())
@@ -380,7 +380,7 @@ pub(crate) fn find_backup_lba<D: Read + Seek>(
 ) -> Result<u64, HeaderError> {
     trace!("querying file size to find backup header location");
     let lb_size: u64 = sector_size.into();
-    let old_pos = f.seek(std::io::SeekFrom::Current(0))?;
+    let old_pos = f.stream_position()?;
     let len = f.seek(std::io::SeekFrom::End(0))?;
     f.seek(std::io::SeekFrom::Start(old_pos))?;
     // lba0: prot mbr, lba1: prim, .., lba-1: backup
