@@ -335,6 +335,98 @@ pub struct GptDisk<D> {
     partitions: BTreeMap<u32, partition::Partition>,
 }
 
+impl<D> GptDisk<D> {
+    /// Retrieve primary header, if any.
+    pub fn primary_header(&self) -> Result<&header::Header, HeaderError> {
+        self.primary_header.as_ref().map_err(|e| e.lossy_clone())
+    }
+
+    /// Retrieve backup header, if any.
+    pub fn backup_header(&self) -> Result<&header::Header, HeaderError> {
+        self.backup_header.as_ref().map_err(|e| e.lossy_clone())
+    }
+
+    /// Retrieve the current valid header.
+    ///
+    /// This can only fail while we're building the disk
+    fn try_header(&self) -> Result<&header::Header, HeaderError> {
+        self.primary_header
+            .as_ref()
+            .or(self.backup_header.as_ref())
+            .map_err(|e| e.lossy_clone())
+    }
+
+    /// Retrieve the current valid header.
+    pub fn header(&self) -> &header::Header {
+        self.try_header().expect("no primary and no backup header")
+    }
+
+    /// Retrieve partition entries.
+    pub fn partitions(&self) -> &BTreeMap<u32, partition::Partition> {
+        &self.partitions
+    }
+
+    /// Retrieve disk UUID.
+    pub fn guid(&self) -> &uuid::Uuid {
+        &self.guid
+    }
+
+    /// Retrieve disk logical block size.
+    pub fn logical_block_size(&self) -> &disk::LogicalBlockSize {
+        &self.config.lb_size
+    }
+
+    /// Change the disk device that we are reading/writing from/to.
+    /// Returns the previous disk device.
+    pub fn update_disk_device(&mut self, device: D, writable: bool) -> D {
+        self.config.writable = writable;
+        std::mem::replace(&mut self.device, device)
+    }
+
+    /// Updates the disk device that the GptDisk instance is interacting with.
+    /// Returns a new GptDisk instance, retaining the previous configuration and GUID,
+    /// but with the specified device and writable status.
+    pub fn with_disk_device<N>(&self, device: N, writable: bool) -> GptDisk<N> {
+        let mut n = GptDisk {
+            config: self.config.clone(),
+            device,
+            guid: self.guid,
+            primary_header: self
+                .primary_header
+                .as_ref()
+                .map_err(|e| e.lossy_clone())
+                .cloned(),
+            backup_header: self
+                .backup_header
+                .as_ref()
+                .map_err(|e| e.lossy_clone())
+                .cloned(),
+            partitions: self.partitions.clone(),
+        };
+        n.config.writable = writable;
+
+        n
+    }
+
+    /// Get a reference to to the underlying device.
+    pub fn device_ref(&self) -> &D {
+        &self.device
+    }
+
+    /// Get a mutable reference to to the underlying device.
+    pub fn device_mut(&mut self) -> &mut D {
+        &mut self.device
+    }
+
+    /// Take the underlying device object and force
+    /// self to drop out of scope.
+    ///
+    /// Caution: this will abandon any changes that where not written.
+    pub fn take_device(self) -> D {
+        self.device
+    }
+}
+
 impl<D> GptDisk<D>
 where
     D: DiskDevice,
@@ -499,81 +591,9 @@ where
         None
     }
 
-    /// Retrieve primary header, if any.
-    pub fn primary_header(&self) -> Result<&header::Header, HeaderError> {
-        self.primary_header.as_ref().map_err(|e| e.lossy_clone())
-    }
-
-    /// Retrieve backup header, if any.
-    pub fn backup_header(&self) -> Result<&header::Header, HeaderError> {
-        self.backup_header.as_ref().map_err(|e| e.lossy_clone())
-    }
-
-    /// Retrieve the current valid header.
-    ///
-    /// This can only fail while we're building the disk
-    fn try_header(&self) -> Result<&header::Header, HeaderError> {
-        self.primary_header
-            .as_ref()
-            .or(self.backup_header.as_ref())
-            .map_err(|e| e.lossy_clone())
-    }
-
-    /// Retrieve the current valid header.
-    pub fn header(&self) -> &header::Header {
-        self.try_header().expect("no primary and no backup header")
-    }
-
-    /// Retrieve partition entries.
-    pub fn partitions(&self) -> &BTreeMap<u32, partition::Partition> {
-        &self.partitions
-    }
-
     /// Retrieve partition entries, replacing it with an empty partitions list.
     pub fn take_partitions(&mut self) -> BTreeMap<u32, partition::Partition> {
         std::mem::take(&mut self.partitions)
-    }
-
-    /// Retrieve disk UUID.
-    pub fn guid(&self) -> &uuid::Uuid {
-        &self.guid
-    }
-
-    /// Retrieve disk logical block size.
-    pub fn logical_block_size(&self) -> &disk::LogicalBlockSize {
-        &self.config.lb_size
-    }
-
-    /// Change the disk device that we are reading/writing from/to.
-    /// Returns the previous disk device.
-    pub fn update_disk_device(&mut self, device: D, writable: bool) -> D {
-        self.config.writable = writable;
-        std::mem::replace(&mut self.device, device)
-    }
-
-    /// Updates the disk device that the GptDisk instance is interacting with.
-    /// Returns a new GptDisk instance, retaining the previous configuration and GUID,
-    /// but with the specified device and writable status.
-    pub fn with_disk_device<N>(&self, device: N, writable: bool) -> GptDisk<N> {
-        let mut n = GptDisk {
-            config: self.config.clone(),
-            device,
-            guid: self.guid,
-            primary_header: self
-                .primary_header
-                .as_ref()
-                .map(Clone::clone)
-                .map_err(|e| e.lossy_clone()),
-            backup_header: self
-                .backup_header
-                .as_ref()
-                .map(Clone::clone)
-                .map_err(|e| e.lossy_clone()),
-            partitions: self.partitions.clone(),
-        };
-        n.config.writable = writable;
-
-        n
     }
 
     /// Update disk UUID.
@@ -769,23 +789,5 @@ where
         self.device.flush()?;
 
         Ok(())
-    }
-
-    /// Get a reference to to the underlying device.
-    pub fn device_ref(&self) -> &D {
-        &self.device
-    }
-
-    /// Get a mutable reference to to the underlying device.
-    pub fn device_mut(&mut self) -> &mut D {
-        &mut self.device
-    }
-
-    /// Take the underlying device object and force
-    /// self to drop out of scope.
-    ///
-    /// Caution: this will abandon any changes that where not written.
-    pub fn take_device(self) -> D {
-        self.device
     }
 }
