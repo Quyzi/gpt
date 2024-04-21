@@ -7,12 +7,12 @@ authors = [
 	"Chris Ober <obercgit@gmail.com>",
 	"Chris Holcombe <xfactor973@gmail.com>",
 	"Luca Bruno <lucab@debian.org>",
-	"Sören Meier <s@renmeier.ch>"
+	"Sören Meier <s@renmeier.ch>",
 ]
 license = "MIT"
 homepage = "https://github.com/Quyzi/gpt"
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.65"
 
 [features]
 # enable logging via the log crate

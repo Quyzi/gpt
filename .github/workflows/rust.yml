@@ -1,5 +1,5 @@
 # Workflow recipe from https://github.com/actions-rs/meta/blob/master/recipes/msrv.md
-on: 
+on:
   push:
     branches: [master]
   pull_request:
@@ -8,7 +8,7 @@ on:
 env:
   RUSTFLAGS: -Dwarnings
   # change manually in matrix
-  rust_min: 1.63.0
+  rust_min: 1.65.0
 
 jobs:
   check:
@@ -19,7 +19,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.63.0
+          - 1.65.0
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
@@ -38,7 +38,7 @@ jobs:
         rust:
           - stable
           - nightly
-          - 1.63.0
+          - 1.65.0
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
