@@ -117,6 +117,8 @@ pub enum GptError {
     OverflowPartitionCount,
     /// The partition count changes but you did not allow that
     PartitionCountWouldChange,
+    /// The id is already been used
+    PartitionIdAlreadyUsed,
 }
 
 impl From<io::Error> for GptError {
@@ -152,6 +154,7 @@ impl fmt::Display for GptError {
                 "partition would change but is not \
             allowed"
             }
+            PartitionIdAlreadyUsed => "partition id already used",
         };
         write!(fmt, "{desc}")
     }
@@ -256,8 +259,8 @@ impl GptConfig {
     /// Open the GPT disk from the given DiskDeviceObject and
     /// inspect it according to configuration options.
     pub fn open_from_device<D>(self, mut device: D) -> Result<GptDisk<D>, GptError>
-    where
-        D: DiskDevice,
+        where
+            D: DiskDevice,
     {
         // Proper GPT disk, fully inspect its layout.
         let h1 = header::read_primary_header(&mut device, self.lb_size);
@@ -293,8 +296,8 @@ impl GptConfig {
         device: D,
         guid: Option<uuid::Uuid>,
     ) -> Result<GptDisk<D>, GptError>
-    where
-        D: DiskDevice,
+        where
+            D: DiskDevice,
     {
         let mut disk = GptDisk {
             config: self,
@@ -449,8 +452,8 @@ impl<D> GptDisk<D> {
 }
 
 impl<D> GptDisk<D>
-where
-    D: DiskDevice,
+    where
+        D: DiskDevice,
 {
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
@@ -537,6 +540,78 @@ where
 
         Err(GptError::NotEnoughSpace)
     }
+    /// create a new partition with a specific id
+    /// a specific name
+    /// a specific first_lba
+    /// a specific length_lba
+    /// a specific part_type
+    /// a specific flags
+    /// ## Panics
+    /// If length is empty panics
+    /// If id zero panics
+    pub fn new_partition(
+        &mut self,
+        name: &str,
+        id: u32,
+        first_lba: u64,
+        length_lba: u64,
+        part_type: partition_types::Type,
+        flags: u64,
+    ) -> Result<u32, GptError> {
+        assert!(length_lba > 0, "length must be greater than zero");
+        assert!(id > 0, "id must be greater than zero");
+        //check id
+        match self.partitions.get(&id) {
+            Some(p) if p.is_used() => return Err(GptError::PartitionIdAlreadyUsed),
+            /// Allow unused ids , because we can allow to modify the part count
+            None => {}
+            _ => {
+                // TODO I don't know what will happen in this scope
+            }
+        }
+        //check partition segment
+        let free_sections = self.find_free_sectors();
+        for (starting_lba, length) in free_sections {
+            if first_lba >= starting_lba && length_lba <= length {
+                // part segment is legal
+                debug!(
+                "starting_lba {}, length {}, id {}",
+                first_lba, length_lba,id);
+                debug!(
+                    "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
+                    id,
+                    part_type,
+                    first_lba,
+                    first_lba + length_lba - 1_u64);
+                // let's try to increase the num parts
+                // because partition_id 0 will never exist the num_parts is without + 1
+                let num_parts_changes = self.header().num_parts_would_change(id);
+                if num_parts_changes && !self.config.change_partition_count {
+                    return Err(GptError::PartitionCountWouldChange);
+                }
+                let part = partition::Partition {
+                    part_type_guid: part_type,
+                    part_guid: uuid::Uuid::new_v4(),
+                    first_lba,
+                    last_lba: first_lba + length_lba - 1_u64,
+                    flags,
+                    name: name.to_string(),
+                };
+                if let Some(p) = self.partitions.insert(id, part.clone()) {
+                    debug!("Replacing\n{}\nwith\n{}", p, part);
+                }
+                if num_parts_changes {
+                    // update headers
+                    self.init_headers()?;
+                }
+                return Ok(id);
+            }
+        }
+
+        //given segment is illegal
+        Err(GptError::NotEnoughSpace)
+    }
+
     /// Remove partition from this disk.
     pub fn remove_partition(&mut self, id: u32) -> Option<u32> {
         self.partitions.remove(&id).map(|_| {
@@ -701,9 +776,9 @@ where
     /// This is a destructive action, as it overwrites headers
     /// and partitions entries on disk. All writes are flushed
     /// to disk before returning.
-    //
-    // Primary header and backup header don't need to match.
-    // so both need to be checked
+//
+// Primary header and backup header don't need to match.
+// so both need to be checked
     pub fn write_inplace(&mut self) -> Result<(), GptError> {
         if !self.config.writable {
             return Err(GptError::ReadOnly);
