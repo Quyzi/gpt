@@ -10,7 +10,7 @@ authors = [
 	"Sören Meier <s@renmeier.ch>",
 ]
 license = "MIT"
-homepage = "https://github.com/Quyzi/gpt"
+repository = "https://github.com/Quyzi/gpt"
 edition = "2021"
 rust-version = "1.65"
 
