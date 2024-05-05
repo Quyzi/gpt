@@ -405,7 +405,6 @@ pub fn read_disk_signature<D: DiskDevice>(device: &mut D) -> io::Result<[u8; 4]>
 }
 
 /// Write the 4 bytes of MBR disk signature.
-#[cfg_attr(feature = "cargo-clippy", allow(clippy::trivially_copy_pass_by_ref))]
 pub fn write_disk_signature<D: DiskDevice>(device: &mut D, sig: &[u8; 4]) -> io::Result<()> {
     let dsig_offset = 440;
     let cur = device.stream_position()?;
