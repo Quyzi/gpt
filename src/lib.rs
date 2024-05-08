@@ -565,7 +565,7 @@ where
             Some(p) if p.is_used() => return Err(GptError::PartitionIdAlreadyUsed),
             // Allow unused ids , because we can allow to modify the part count
             _ => {
-                //
+                // will override unused partition
             }
         }
         //check partition segment
