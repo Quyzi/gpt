@@ -259,8 +259,8 @@ impl GptConfig {
     /// Open the GPT disk from the given DiskDeviceObject and
     /// inspect it according to configuration options.
     pub fn open_from_device<D>(self, mut device: D) -> Result<GptDisk<D>, GptError>
-        where
-            D: DiskDevice,
+    where
+        D: DiskDevice,
     {
         // Proper GPT disk, fully inspect its layout.
         let h1 = header::read_primary_header(&mut device, self.lb_size);
@@ -296,8 +296,8 @@ impl GptConfig {
         device: D,
         guid: Option<uuid::Uuid>,
     ) -> Result<GptDisk<D>, GptError>
-        where
-            D: DiskDevice,
+    where
+        D: DiskDevice,
     {
         let mut disk = GptDisk {
             config: self,
@@ -452,8 +452,8 @@ impl<D> GptDisk<D> {
 }
 
 impl<D> GptDisk<D>
-    where
-        D: DiskDevice,
+where
+    D: DiskDevice,
 {
     /// Add another partition to this disk.  This tries to find
     /// the optimum partition location with the lowest block device.
@@ -549,7 +549,7 @@ impl<D> GptDisk<D>
     /// ## Panics
     /// If length is empty panics
     /// If id zero panics
-    pub fn new_partition(
+    pub fn add_partition_at(
         &mut self,
         name: &str,
         id: u32,
@@ -563,10 +563,9 @@ impl<D> GptDisk<D>
         //check id
         match self.partitions.get(&id) {
             Some(p) if p.is_used() => return Err(GptError::PartitionIdAlreadyUsed),
-            /// Allow unused ids , because we can allow to modify the part count
-            None => {}
+            // Allow unused ids , because we can allow to modify the part count
             _ => {
-                // TODO I don't know what will happen in this scope
+                //
             }
         }
         //check partition segment
@@ -575,14 +574,16 @@ impl<D> GptDisk<D>
             if first_lba >= starting_lba && length_lba <= length {
                 // part segment is legal
                 debug!(
-                "starting_lba {}, length {}, id {}",
-                first_lba, length_lba,id);
+                    "starting_lba {}, length {}, id {}",
+                    first_lba, length_lba, id
+                );
                 debug!(
                     "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
                     id,
                     part_type,
                     first_lba,
-                    first_lba + length_lba - 1_u64);
+                    first_lba + length_lba - 1_u64
+                );
                 // let's try to increase the num parts
                 // because partition_id 0 will never exist the num_parts is without + 1
                 let num_parts_changes = self.header().num_parts_would_change(id);
@@ -776,9 +777,9 @@ impl<D> GptDisk<D>
     /// This is a destructive action, as it overwrites headers
     /// and partitions entries on disk. All writes are flushed
     /// to disk before returning.
-//
-// Primary header and backup header don't need to match.
-// so both need to be checked
+    //
+    // Primary header and backup header don't need to match.
+    // so both need to be checked
     pub fn write_inplace(&mut self) -> Result<(), GptError> {
         if !self.config.writable {
             return Err(GptError::ReadOnly);
