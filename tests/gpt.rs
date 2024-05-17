@@ -122,7 +122,7 @@ fn test_gpt_disk_write_fidelity_with_device() {
 
 #[test]
 fn test_create_simple_on_device() {
-    const TOTAL_BYTES: usize = 1024 * 64;
+    const TOTAL_BYTES: usize = 1024 * 66;
     let mut mem_device = Box::new(std::io::Cursor::new(vec![0_u8; TOTAL_BYTES]));
 
     // Create a protective MBR at LBA0
@@ -143,6 +143,11 @@ fn test_create_simple_on_device() {
     gdisk
         .add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
         .unwrap();
+    let id = gdisk.find_next_partition_id().unwrap();
+    gdisk
+        .add_partition_at("test3", id, 94, 2, gpt::partition_types::BASIC, 0)
+        .unwrap();
+
     let mut mem_device = gdisk.write().unwrap();
     mem_device.seek(std::io::SeekFrom::Start(0)).unwrap();
     let mut final_bytes = vec![0_u8; TOTAL_BYTES];
@@ -161,7 +166,7 @@ fn test_only_valid_headers() {
     // write a valid disk
     let mut valid_disk = GptConfig::new()
         .writable(true)
-        .create_from_device(Cursor::new(vec![0; 1024 * 68]), None)
+        .create_from_device(Cursor::new(vec![0; 1024 * 70]), None)
         .unwrap();
 
     valid_disk
@@ -170,7 +175,10 @@ fn test_only_valid_headers() {
     valid_disk
         .add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
         .unwrap();
-
+    let id = valid_disk.find_next_partition_id().unwrap();
+    valid_disk
+        .add_partition_at("test3", id, 94, 2, gpt::partition_types::BASIC, 0)
+        .unwrap();
     // now write to memory
     let valid_disk = valid_disk.write().unwrap();
     let mut corrupt_disk = valid_disk.clone();
@@ -201,7 +209,7 @@ fn test_readonly_backup() {
     // write a valid disk
     let mut valid_disk = GptConfig::new()
         .writable(true)
-        .create_from_device(Cursor::new(vec![0; 1024 * 68]), None)
+        .create_from_device(Cursor::new(vec![0; 1024 * 70]), None)
         .unwrap();
 
     valid_disk
@@ -210,7 +218,10 @@ fn test_readonly_backup() {
     valid_disk
         .add_partition("test2", 1024 * 18, gpt::partition_types::LINUX_FS, 0, None)
         .unwrap();
-
+    let id = valid_disk.find_next_partition_id().unwrap();
+    valid_disk
+        .add_partition_at("test4", id, 94, 2, gpt::partition_types::BASIC, 0)
+        .unwrap();
     // now write to memory
     valid_disk.write_inplace().unwrap();
     let valid_disk_bytes = valid_disk.device_ref();
