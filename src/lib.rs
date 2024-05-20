@@ -642,7 +642,7 @@ where
 
         let mut exponent = (align as f64).log2() as u32;
 
-        for (_id, partition) in &self.partitions {
+        for partition in self.partitions.values() {
             if partition.is_used() {
                 let mut found = false;
                 while !found {
