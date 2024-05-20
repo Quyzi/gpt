@@ -74,6 +74,10 @@ fn test_gpt_disk_read() {
     assert_eq!(p2_start, 512 * 35);
     let p2_len = p2.bytes_len(*gdisk.logical_block_size()).unwrap();
     assert_eq!(p2_len, 4 * 512);
+
+    let part_alignment = gdisk.compute_alignment();
+    println!("Test part alignment={}", part_alignment);
+    assert_eq!(part_alignment, 1);
 }
 
 #[test]
