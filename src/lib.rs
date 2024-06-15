@@ -618,7 +618,7 @@ where
     /// return 1 if partitions are not well aligned ( can be seen as 1 alignment )
     /// MAX ALIGNMENT IS 2048 ! And the result is ok ONLY if existed partitions is well aligned
     pub fn calculate_alignment(&self) -> u64 {
-        if self.partitions.len() == 0 {
+        if self.partitions.is_empty() {
             return 0;
         }
         const MAX_ALIGN: u64 = 2048;
