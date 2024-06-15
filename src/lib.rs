@@ -612,54 +612,32 @@ where
         //given segment is illegal
         Err(GptError::NotEnoughSpace)
     }
-    /// Compute sector alignment based on the current partitions (if any). Each
-    /// partition's starting LBA is examined, and if it's divisible by a power-of-2
-    /// value less than or equal to the DEFAULT_ALIGNMENT value (adjusted for the
-    /// sector size), but not by the previously-located alignment value, then the
-    /// alignment value is adjusted down. If the computed alignment is less than 8
-    /// and the disk is bigger than SMALLEST_ADVANCED_FORMAT, resets it to 8. This
-    /// is a safety measure for Advanced Format drives. If no partitions are
-    /// defined, the alignment value is set to DEFAULT_ALIGNMENT (2048) (or an
-    /// adjustment of that based on the current sector size). The result is that new
-    /// drives are aligned to 2048-sector multiples but the program won't complain
-    /// about other alignments on existing disks unless a smaller-than-8 alignment
-    /// is used on big disks (as safety for Advanced Format drives).
-    /// Returns the computed alignment value.
-    /// Ported from gptfdisk's gpt.cc
-    pub fn compute_alignment(&self) -> u64 {
-        const DEFAULT_ALIGNMENT: u64 = 2048;
-        const MIN_AF_ALIGNMENT: u64 = 8;
-        // Below constant corresponds to a ~279GiB (300GB) disk, since the
-        // smallest Advanced Format drive I know of is 320GB in size
-        const SMALLEST_ADVANCED_FORMAT: u64 = 585_937_500; // 320GB
-                                                           //set this as default
-        const SECTOR_SIZE: u64 = 512;
-        let mut align = DEFAULT_ALIGNMENT;
-        let block_size = self.logical_block_size().as_u64();
-        if block_size > 0 {
-            align = DEFAULT_ALIGNMENT * SECTOR_SIZE / block_size;
+    /// calculate sector alignment based on the current partitions
+    /// in order to promise uniform alignment
+    /// return 0 if no partitions existed
+    /// return 1 if partitions are not well aligned ( can be seen as 1 alignment )
+    /// MAX ALIGNMENT IS 2048 ! And the result is ok ONLY if existed partitions is well aligned
+    pub fn calculate_alignment(&self) -> u64 {
+        if self.partitions.len() == 0 {
+            return 0;
         }
-
+        const MAX_ALIGN: u64 = 2048;
+        let mut align = MAX_ALIGN;
         let mut exponent = (align as f64).log2() as u32;
 
         for partition in self.partitions.values() {
             if partition.is_used() {
-                let mut found = false;
-                while !found {
+                let mut hit = false;
+                while !hit {
                     align = u64::pow(2, exponent);
                     if (partition.first_lba % align) == 0 {
-                        found = true;
+                        hit = true;
                     } else {
                         exponent -= 1;
                     }
                 } //while
             } //if
         } //for
-          // Warning: This is always smaller than actual disk size
-        let disk_fake_size_lba = self.header().last_usable + 1;
-        if align < MIN_AF_ALIGNMENT && disk_fake_size_lba >= SMALLEST_ADVANCED_FORMAT {
-            align = MIN_AF_ALIGNMENT;
-        }
         align
     }
 
