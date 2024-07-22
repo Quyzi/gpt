@@ -612,6 +612,34 @@ where
         //given segment is illegal
         Err(GptError::NotEnoughSpace)
     }
+    /// calculate sector alignment based on the current partitions
+    /// in order to promise uniform alignment
+    /// return 0 if no partitions existed
+    /// return 1 if partitions are not well aligned ( can be seen as 1 alignment )
+    /// MAX ALIGNMENT IS 2048 ! And the result is ok ONLY if existed partitions is well aligned
+    pub fn calculate_alignment(&self) -> u64 {
+        if self.partitions.is_empty() {
+            return 0;
+        }
+        const MAX_ALIGN: u64 = 2048;
+        let mut align = MAX_ALIGN;
+        let mut exponent = (align as f64).log2() as u32;
+
+        for partition in self.partitions.values() {
+            if partition.is_used() {
+                let mut hit = false;
+                while !hit {
+                    align = u64::pow(2, exponent);
+                    if (partition.first_lba % align) == 0 {
+                        hit = true;
+                    } else {
+                        exponent -= 1;
+                    }
+                } //while
+            } //if
+        } //for
+        align
+    }
 
     /// Remove partition from this disk.
     pub fn remove_partition(&mut self, id: u32) -> Option<u32> {
