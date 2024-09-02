@@ -29,7 +29,7 @@ pub mod pub_macros {
             impl FromStr for Type {
                 type Err = String;
                 fn from_str(s: &str) -> Result<Self, Self::Err> {
-                    match s {
+                    match s.to_ascii_uppercase().as_str() {
                         $(
                             $guid |
                             stringify!($upcase) => Ok($upcase),

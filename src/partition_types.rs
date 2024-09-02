@@ -352,6 +352,12 @@ mod tests {
             Type::from_str("00000000-0000-0000-0000-000000000000").unwrap(),
             UNUSED
         );
+
+        // test case sensitivity
+        assert_eq!(
+            Type::from_str("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7").unwrap(),
+            BASIC
+        );
     }
 
     #[test]
