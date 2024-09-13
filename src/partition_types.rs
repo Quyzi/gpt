@@ -93,9 +93,7 @@ impl FromStr for OperatingSystem {
 impl Type {
     /// Lookup a partition type by name
     pub fn from_name(name: &str) -> Result<Self, String> {
-        let name_str = name.to_uppercase();
-        trace!("looking up partition type by name {}", name_str);
-        Type::from_str(&name_str)
+        Type::from_str(name)
     }
 }
 
