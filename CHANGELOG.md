@@ -1,19 +1,4 @@
-### v4.0.0-rc.3 (2024-04-21)
-
-#### Changes
-
-- Bump MSRV to 1.65
-- implement Clone for GptDisk
-- relax trait bounds on some functions of GptDisk
-
-### v4.0.0-rc.2 (2024-04-04)
-
-#### Changes
-
-- remove `Partition::size` and replace it with `sectors_len` which returns the correct number of sectors
-- `GptDisk::{primary_header, backup_header, try_header}` now return an error instead of just `Option`
-
-### v4.0.0-rc.1 (2023-11-18)
+### v4.0.0 (2024-09-13)
 
 #### Behaviour changes
 
@@ -22,8 +7,14 @@
 
 #### Changes
 
-- Bump MSRV to 1.63
-
+- `Type::from_str` now is case insensitive, Thanks @IronBatman2715
+- add `GptDisk::calculate_alignment` allowing to calculate the sector alignment, Thanks @gaochuntie
+- add `GptDisk::add_partition_at`, Thanks @gaochuntie
+- Bump MSRV to 1.65
+- implement Clone for GptDisk
+- relax trait bounds on some functions of GptDisk
+- remove `Partition::size` and replace it with `sectors_len` which returns the correct number of sectors, Thanks @sjoerdsimons
+- `GptDisk::{primary_header, backup_header, try_header}` now return an error instead of just `Option`
 - Remove initialized state & configuration
 - add the option to allow the partition count to be changed
 - add the option to only open a disk if both headers are valid
@@ -36,9 +27,9 @@
 - add `GptDisk::device_ref`
 - add `GptDisk::device_mut`
 - crc32 are now stored in the header after it has been written instead of always being zeros
-- Add DragonFlyBSD as partition and OS type
+- Add DragonFlyBSD as partition and OS type, Thanks @phcoder
 - `GptDisk` now accepts a generic `DiskDevice`
-- add ChromeOS RWFW partition type
+- add ChromeOS RWFW partition type, Thanks @phcoder
 - improve error reporting, returning `HeaderError` or the new `GptError`
 - add `HeaderBuilder` to simplify creating a header (replaces Header::compute_new)
 - add `GptDisk::take_device`
