@@ -13,6 +13,7 @@ license = "MIT"
 repository = "https://github.com/Quyzi/gpt"
 edition = "2021"
 rust-version = "1.65"
+exclude = ["tests/fixtures", "tests/gpt-real-disk.rs"]
 
 [features]
 # enable logging via the log crate
