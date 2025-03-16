@@ -160,7 +160,8 @@ fn test_readonly_backup() {
 
 #[test]
 fn test_change_partition_count() {
-    let size = 67 + 128;
+    // + 1 so we don't get NotEnoughSpace but PartitionCountWouldChange
+    let size = 67 + 128 + 1;
 
     // write a valid disk
     let mut valid_disk = GptConfig::new()
@@ -345,4 +346,50 @@ fn test_gptdisk_write_efi_unused_partition_entries_512() {
 #[test]
 fn test_gptdisk_write_efi_unused_partition_entries_4096() {
     test_helper_gptdisk_write_efi_unused_partition_entries(disk::LogicalBlockSize::Lb4096);
+}
+
+#[test]
+fn test_non_overlapping_partition_edge_case() {
+    use gpt::{disk, partition_types, GptConfig};
+    use std::io::Cursor;
+
+    // Create an in-memory disk with 64 KiB.
+    let total_bytes = 1024 * 64;
+    let buf = vec![0u8; total_bytes];
+    let device = Cursor::new(buf);
+
+    // Create a new GPT disk using 512-byte sectors.
+    let mut gpt_disk = GptConfig::default()
+        .writable(true)
+        .logical_block_size(disk::LogicalBlockSize::Lb512)
+        .create_from_device(device, None)
+        .expect("failed to create GPT disk in memory");
+
+    // Create the first partition with size exactly one sector (512 bytes).
+    gpt_disk
+        .add_partition("edge1", 512, partition_types::BASIC, 0, None)
+        .expect("failed to add partition edge1");
+
+    // Create the second partition also with a size of 512 bytes.
+    gpt_disk
+        .add_partition("edge2", 512, partition_types::BASIC, 0, None)
+        .expect("failed to add partition edge2");
+
+    // Retrieve partition entries.
+    let parts = gpt_disk.partitions();
+    let part1 = parts.get(&1).expect("partition 1 missing");
+    let part2 = parts.get(&2).expect("partition 2 missing");
+
+    // A correctly working GPT driver should not have overlapping partitions.
+    // For example, if part1 occupies only one sector, then part2 should start at:
+    //    part2.first_lba == part1.last_lba + 1
+    //
+    // With the current off-by-one error, part2.first_lba is less than or equal to part1.last_lba,
+    assert_eq!(
+        part1.last_lba + 1,
+        part2.first_lba,
+        "Partitions overlap: part1 = {:?}, part2 = {:?}",
+        part1.first_lba..part1.last_lba,
+        part2.first_lba..part2.last_lba
+    );
 }

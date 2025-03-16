@@ -513,7 +513,7 @@ where
                 starting_lba, length, alignment_offset_lba
             );
 
-            if length >= (alignment_offset_lba + size_lba - 1) {
+            if length >= (alignment_offset_lba + size_lba) {
                 let starting_lba = starting_lba + alignment_offset_lba;
                 // Found our free slice.
                 let partition_id = self
@@ -694,26 +694,31 @@ where
         let header = self.header();
 
         trace!("first_usable: {}", header.first_usable);
-        let mut disk_positions = vec![header.first_usable];
+        // a list of boundaries between partitions each point is a used lba
+        let mut disk_positions = vec![header.first_usable - 1];
         for part in self.partitions().iter().filter(|p| p.1.is_used()) {
-            trace!("partition: ({}, {})", part.1.first_lba, part.1.last_lba);
+            trace!(
+                "used partition: ({}, {})",
+                part.1.first_lba,
+                part.1.last_lba
+            );
             disk_positions.push(part.1.first_lba);
             disk_positions.push(part.1.last_lba);
         }
-        disk_positions.push(header.last_usable);
+        disk_positions.push(header.last_usable + 1);
         trace!("last_usable: {}", header.last_usable);
         disk_positions.sort_unstable();
 
         disk_positions
             // Walk through the LBA's in chunks of 2 (ending, starting).
-            .chunks(2)
+            .chunks_exact(2)
             // Add 1 to the ending and then subtract the starting if NOT the first usable sector
-            .map(|p| {
-                if p[0] == header.first_usable {
-                    (p[0], p[1].saturating_sub(p[0]))
-                } else {
-                    (p[0] + 1, p[1].saturating_sub(p[0] + 1))
-                }
+            .filter_map(|p| {
+                // free lba
+                let start = p[0] + 1;
+                let end = p[1] - 1;
+
+                (start <= end).then(|| (start, end - start + 1))
             })
             .collect()
     }
