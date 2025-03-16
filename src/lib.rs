@@ -243,7 +243,10 @@ impl GptConfig {
             .write(self.writable)
             .read(true)
             .open(diskpath)?;
-        self.open_from_device(file)
+        let mut gpt = self.open_from_device(file)?;
+        gpt.sync_all = Some(file_sync_all);
+
+        Ok(gpt)
     }
 
     /// Creates the GPT disk at the given path.
@@ -255,7 +258,10 @@ impl GptConfig {
             .write(self.writable)
             .read(true)
             .open(diskpath)?;
-        self.create_from_device(file, None)
+        let mut gpt = self.create_from_device(file, None)?;
+        gpt.sync_all = Some(file_sync_all);
+
+        Ok(gpt)
     }
 
     /// Open the GPT disk from the given DiskDeviceObject and
@@ -286,6 +292,7 @@ impl GptConfig {
             primary_header: h1,
             backup_header: h2,
             partitions: table,
+            sync_all: None,
         };
         debug!("disk: {:?}", disk);
         Ok(disk)
@@ -308,6 +315,7 @@ impl GptConfig {
             primary_header: Err(HeaderError::InvalidGptSignature),
             backup_header: Err(HeaderError::InvalidGptSignature),
             partitions: BTreeMap::new(),
+            sync_all: None,
         };
         // setup default headers
         disk.init_headers()?;
@@ -338,6 +346,9 @@ pub struct GptDisk<D> {
     backup_header: Result<header::Header, HeaderError>,
     /// partition: 0 does never exist
     partitions: BTreeMap<u32, partition::Partition>,
+    // we need this because to really make sure all content is written
+    // a call to sync_all is required (but this is only possible with a fs::File)
+    sync_all: Option<fn(&mut D) -> io::Result<()>>,
 }
 
 impl<D: Clone> Clone for GptDisk<D> {
@@ -357,6 +368,7 @@ impl<D: Clone> Clone for GptDisk<D> {
                 .map_err(|e| e.lossy_clone())
                 .cloned(),
             partitions: self.partitions.clone(),
+            sync_all: self.sync_all,
         }
     }
 }
@@ -428,6 +440,7 @@ impl<D> GptDisk<D> {
                 .map_err(|e| e.lossy_clone())
                 .cloned(),
             partitions: self.partitions.clone(),
+            sync_all: None,
         };
         n.config.writable = writable;
 
@@ -806,6 +819,10 @@ where
     /// This is a destructive action, as it overwrite headers and
     /// partitions entries on disk. All writes are flushed to disk
     /// before returning the underlying DiskDeviceObject.
+    ///
+    /// ## Note
+    /// If you provided you're own DiskDevice you need to make sure
+    /// that the device is flushed to disk for example via `sync_all`.
     pub fn write(mut self) -> Result<D, GptError> {
         self.write_inplace()?;
 
@@ -817,6 +834,10 @@ where
     /// This is a destructive action, as it overwrites headers
     /// and partitions entries on disk. All writes are flushed
     /// to disk before returning.
+    ///
+    /// ## Note
+    /// If you provided you're own DiskDevice you need to make sure
+    /// that the device is flushed to disk for example via `sync_all`.
     //
     // Primary header and backup header don't need to match.
     // so both need to be checked
@@ -824,6 +845,7 @@ where
         if !self.config.writable {
             return Err(GptError::ReadOnly);
         }
+
         debug!("Computing new headers");
         trace!("old primary header: {:?}", self.primary_header);
         trace!("old backup header: {:?}", self.backup_header);
@@ -925,6 +947,14 @@ where
 
         self.device.flush()?;
 
+        if let Some(sync_all) = self.sync_all {
+            sync_all(&mut self.device)?;
+        }
+
         Ok(())
     }
+}
+
+fn file_sync_all(device: &mut fs::File) -> io::Result<()> {
+    device.sync_all()
 }
