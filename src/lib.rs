@@ -336,7 +336,6 @@ impl Default for GptConfig {
 }
 
 /// A GPT disk backed by an arbitrary device.
-#[derive(Debug)]
 pub struct GptDisk<D> {
     /// if you set config initialized this means there exists a primary_header
     config: GptConfig,
@@ -349,6 +348,22 @@ pub struct GptDisk<D> {
     // we need this because to really make sure all content is written
     // a call to sync_all is required (but this is only possible with a fs::File)
     sync_all: Option<fn(&mut D) -> io::Result<()>>,
+}
+
+impl<D> fmt::Debug for GptDisk<D>
+where
+    D: fmt::Debug,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("GptDisk")
+            .field("config", &self.config)
+            .field("device", &self.device)
+            .field("guid", &self.guid)
+            .field("primary_header", &self.primary_header)
+            .field("backup_header", &self.backup_header)
+            .field("partitions", &self.partitions)
+            .finish()
+    }
 }
 
 impl<D: Clone> Clone for GptDisk<D> {
