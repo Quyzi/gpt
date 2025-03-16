@@ -733,6 +733,7 @@ where
                 let start = p[0] + 1;
                 let end = p[1] - 1;
 
+                #[allow(clippy::unnecessary_lazy_evaluations)]
                 (start <= end).then(|| (start, end - start + 1))
             })
             .collect()
