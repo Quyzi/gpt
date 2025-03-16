@@ -89,9 +89,11 @@ use macros::ResultInsert;
 
 /// A generic device that we can read/write partitions from/to.
 pub trait DiskDevice: Read + Write + Seek + std::fmt::Debug {}
+
 /// Implement the DiskDevice trait for anything that meets the
 /// requirements, e.g., `std::fs::File`
 impl<T> DiskDevice for T where T: Read + Write + Seek + std::fmt::Debug {}
+
 /// A dynamic trait object that is used by GptDisk for reading/writing/seeking.
 pub type DiskDeviceObject<'a> = Box<dyn DiskDevice + 'a>;
 
@@ -540,12 +542,14 @@ where
 
         Err(GptError::NotEnoughSpace)
     }
+
     /// create a new partition with a specific id
     /// a specific name
     /// a specific first_lba
     /// a specific length_lba
     /// a specific part_type
     /// a specific flags
+    ///
     /// ## Panics
     /// If length is empty panics
     /// If id zero panics
@@ -560,6 +564,7 @@ where
     ) -> Result<u32, GptError> {
         assert!(length_lba > 0, "length must be greater than zero");
         assert!(id > 0, "id must be greater than zero");
+
         //check id
         match self.partitions.get(&id) {
             Some(p) if p.is_used() => return Err(GptError::PartitionIdAlreadyUsed),
@@ -568,50 +573,58 @@ where
                 // will override unused partition
             }
         }
-        //check partition segment
-        let free_sections = self.find_free_sectors();
-        for (starting_lba, length) in free_sections {
-            if first_lba >= starting_lba && length_lba <= length {
-                // part segment is legal
-                debug!(
-                    "starting_lba {}, length {}, id {}",
-                    first_lba, length_lba, id
-                );
-                debug!(
-                    "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
-                    id,
-                    part_type,
-                    first_lba,
-                    first_lba + length_lba - 1_u64
-                );
-                // let's try to increase the num parts
-                // because partition_id 0 will never exist the num_parts is without + 1
-                let num_parts_changes = self.header().num_parts_would_change(id);
-                if num_parts_changes && !self.config.change_partition_count {
-                    return Err(GptError::PartitionCountWouldChange);
-                }
-                let part = partition::Partition {
-                    part_type_guid: part_type,
-                    part_guid: uuid::Uuid::new_v4(),
-                    first_lba,
-                    last_lba: first_lba + length_lba - 1_u64,
-                    flags,
-                    name: name.to_string(),
-                };
-                if let Some(p) = self.partitions.insert(id, part.clone()) {
-                    debug!("Replacing\n{}\nwith\n{}", p, part);
-                }
-                if num_parts_changes {
-                    // update headers
-                    self.init_headers()?;
-                }
-                return Ok(id);
+
+        for (starting_lba, length) in self.find_free_sectors() {
+            if !(first_lba >= starting_lba && length_lba <= length) {
+                continue;
             }
+
+            // part segment is legal
+            debug!(
+                "starting_lba {}, length {}, id {}",
+                first_lba, length_lba, id
+            );
+            debug!(
+                "Adding partition id: {} {:?}.  first_lba: {} last_lba: {}",
+                id,
+                part_type,
+                first_lba,
+                first_lba + length_lba - 1_u64
+            );
+
+            // let's try to increase the num parts
+            // because partition_id 0 will never exist the num_parts is without + 1
+            let num_parts_changes = self.header().num_parts_would_change(id);
+
+            if num_parts_changes && !self.config.change_partition_count {
+                return Err(GptError::PartitionCountWouldChange);
+            }
+
+            let part = partition::Partition {
+                part_type_guid: part_type,
+                part_guid: uuid::Uuid::new_v4(),
+                first_lba,
+                last_lba: first_lba + length_lba - 1_u64,
+                flags,
+                name: name.to_string(),
+            };
+
+            if let Some(p) = self.partitions.insert(id, part.clone()) {
+                debug!("Replacing\n{}\nwith\n{}", p, part);
+            }
+
+            if num_parts_changes {
+                // update headers
+                self.init_headers()?;
+            }
+
+            return Ok(id);
         }
 
         //given segment is illegal
         Err(GptError::NotEnoughSpace)
     }
+
     /// calculate sector alignment based on the current partitions
     /// in order to promise uniform alignment
     /// return 0 if no partitions existed
@@ -621,23 +634,22 @@ where
         if self.partitions.is_empty() {
             return 0;
         }
+
         const MAX_ALIGN: u64 = 2048;
         let mut align = MAX_ALIGN;
         let mut exponent = (align as f64).log2() as u32;
 
-        for partition in self.partitions.values() {
-            if partition.is_used() {
-                let mut hit = false;
-                while !hit {
-                    align = u64::pow(2, exponent);
-                    if (partition.first_lba % align) == 0 {
-                        hit = true;
-                    } else {
-                        exponent -= 1;
-                    }
-                } //while
-            } //if
-        } //for
+        for partition in self.partitions.values().filter(|p| p.is_used()) {
+            loop {
+                align = u64::pow(2, exponent);
+                if (partition.first_lba % align) == 0 {
+                    break;
+                }
+
+                exponent -= 1;
+            }
+        }
+
         align
     }
 
