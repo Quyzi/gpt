@@ -1,3 +1,11 @@
+### v4.1.0 (2025-03-16)
+
+#### Changes
+- After writing to disk sync_all is now called to ensure the data is written to disk #108
+
+#### Fixes
+- Partitions would overlap if `size <= lb_size` #109
+
 ### v4.0.0 (2024-09-13)
 
 #### Behaviour changes
