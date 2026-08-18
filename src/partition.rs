@@ -367,7 +367,7 @@ mod tests {
         {
             // Overflowing u64 length.
             let mut p2 = partition::Partition::zero();
-            p2.last_lba = <u64>::max_value();
+            p2.last_lba = u64::MAX;
             p2.sectors_len().unwrap_err();
             p2.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
             p2.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
@@ -403,7 +403,7 @@ mod tests {
         {
             // Overflowing u64 start.
             let mut p1 = partition::Partition::zero();
-            p1.first_lba = <u64>::max_value();
+            p1.first_lba = u64::MAX;
             p1.bytes_len(disk::LogicalBlockSize::Lb512).unwrap_err();
             p1.bytes_len(disk::LogicalBlockSize::Lb4096).unwrap_err();
         }
