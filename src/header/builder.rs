@@ -29,7 +29,7 @@ impl HeaderBuilder {
             primary_lba: 1,
             backup_lba: 0,
             first_usable: 0,
-            last_usable: 0,
+            last_usable: u64::MAX,
             num_parts: super::MIN_NUM_PARTS,
             part_size: 128,
         }
@@ -140,7 +140,7 @@ impl HeaderBuilder {
             1 + 1 + part_array_lbs,
         );
 
-        let last_usable = self.last_usable.max(
+        let last_usable = self.last_usable.min(
             // last is inclusive: end of disk is (partition array) (backup header)
             self.backup_lba
                 .checked_sub(part_array_lbs + 1)
